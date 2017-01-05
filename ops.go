@@ -101,6 +101,11 @@ func (cs *cpuState) stepOpcode() {
 	case 0x20: // JSR (jump and store return addr)
 		cs.push16(cs.PC + 2)
 		cs.jmpOp(6, 3, cs.getAbsoluteAddr())
+	case 0x24: // BIT (zeropage)
+		val := cs.read(cs.getZeroPageAddr())
+		cs.P &^= 0xC0
+		cs.P |= val & 0xC0
+		cs.setZeroFlag(cs.A^val == 0)
 	case 0x25: // AND (zeropage)
 		result := cs.A & cs.read(cs.getZeroPageAddr())
 		cs.setRegOp(3, 2, &cs.A, result, cs.setZeroNeg)
@@ -220,16 +225,19 @@ func (cs *cpuState) stepOpcode() {
 	case 0xb4: // LDY zeropage, x
 		addr := cs.getIndexedZeroPageAddr(cs.X)
 		cs.setRegOp(4, 2, &cs.Y, cs.read(addr), cs.setZeroNeg)
+	case 0xb5: // LDA zeropage, x
+		addr := cs.getIndexedZeroPageAddr(cs.X)
+		cs.setRegOp(4, 2, &cs.A, cs.read(addr), cs.setZeroNeg)
 	case 0xbd: // LDA absolute, x
 		addr := cs.getAbsoluteAddr() + uint16(cs.X)
 		cs.setRegOp(4, 3, &cs.A, cs.read(addr), cs.setZeroNeg)
 
 	case 0xc6: // DEC zeropage
-		result := cs.read(cs.getZeroPageAddr()) - 1
-		cs.storeOp(5, 2, cs.getZeroPageAddr(), result, cs.setZeroNeg)
+		addr := cs.getZeroPageAddr()
+		cs.storeOp(5, 2, addr, cs.read(addr)-1, cs.setZeroNeg)
 	case 0xce: // DEC absolute
-		result := cs.read(cs.getAbsoluteAddr()) - 1
-		cs.storeOp(6, 3, cs.getAbsoluteAddr(), result, cs.setZeroNeg)
+		addr := cs.getAbsoluteAddr()
+		cs.storeOp(6, 3, addr, cs.read(addr)-1, cs.setZeroNeg)
 	case 0xc4: // CPY (zeropage) (compare y)
 		cs.cmpOp(3, 2, cs.Y, cs.read(cs.getZeroPageAddr()))
 	case 0xc8: // INY (increment y)
@@ -241,6 +249,9 @@ func (cs *cpuState) stepOpcode() {
 
 	case 0xd0: // BNE (branch on not zero)
 		cs.branchOpRel(cs.P&flagZero == 0)
+	case 0xd6: // DEC zeropage,x
+		addr := cs.getIndexedZeroPageAddr(cs.X)
+		cs.storeOp(6, 2, addr, cs.read(addr)-1, cs.setZeroNeg)
 	case 0xd8: // CLD (clear decimal mode)
 		cs.opFn(2, 1, func() { cs.P &^= flagDecimal })
 
@@ -250,8 +261,8 @@ func (cs *cpuState) stepOpcode() {
 	case 0xe8: // INX (increment x)
 		cs.setRegOp(2, 1, &cs.X, cs.X+1, cs.setZeroNeg)
 	case 0xee: // INC absolute
-		result := cs.read(cs.getAbsoluteAddr()) + 1
-		cs.storeOp(6, 3, cs.getAbsoluteAddr(), result, cs.setZeroNeg)
+		addr := cs.getAbsoluteAddr()
+		cs.storeOp(6, 3, addr, cs.read(addr)+1, cs.setZeroNeg)
 
 	case 0xf0: // BEQ (branch on zero)
 		cs.branchOpRel(cs.P&flagZero == flagZero)
@@ -304,6 +315,14 @@ func (cs *cpuState) setCarryFlag(test bool) {
 		cs.P |= flagCarry
 	} else {
 		cs.P &^= flagCarry
+	}
+}
+
+func (cs *cpuState) setZeroFlag(test bool) {
+	if test {
+		cs.P |= flagZero
+	} else {
+		cs.P &^= flagZero
 	}
 }
 

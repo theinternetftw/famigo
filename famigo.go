@@ -32,6 +32,7 @@ func (cs *cpuState) writeJoypadReg1(val byte) {
 	if val&0x01 != 0 {
 		cs.ReloadingJoypads = true
 		cs.JoypadReg1ReadCount = 0
+		cs.JoypadReg2ReadCount = 0
 	} else if cs.ReloadingJoypads {
 		cs.ReloadingJoypads = false
 	}
@@ -49,7 +50,7 @@ func (cs *cpuState) readJoypadReg1() byte {
 	}
 	state := cs.getCurrentButtonState(jp, cs.JoypadReg1ReadCount)
 	cs.JoypadReg1ReadCount++
-	return 0x40 | boolBit(state, 1)
+	return 0x40 | boolBit(state, 0)
 }
 
 // writes for this reg handled by apu.writeFrameCounterReg
@@ -62,7 +63,7 @@ func (cs *cpuState) readJoypadReg2() byte {
 	}
 	state := cs.getCurrentButtonState(jp, cs.JoypadReg2ReadCount)
 	cs.JoypadReg2ReadCount++
-	return 0x40 | boolBit(state, 1)
+	return 0x40 | boolBit(state, 0)
 }
 
 func (cs *cpuState) runCycles(cycles uint) {

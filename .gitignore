@@ -1,0 +1,12 @@
+glide.lock
+vendor
+
+tools
+build
+build-dev
+r
+
+*.nes
+*.sav
+
+*.exe

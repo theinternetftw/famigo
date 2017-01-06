@@ -18,6 +18,28 @@ func (cs *cpuState) read(addr uint16) byte {
 		val = cs.Mem.InternalRAM[addr&0x07ff]
 	case addr >= 0x2000 && addr < 0x4000:
 		val = cs.ppuRead(addr)
+	case addr == 0x4000:
+		val = cs.APU.Pulse1.readVolDutyReg()
+	case addr == 0x4001:
+		val = cs.APU.Pulse1.readSweepReg()
+	case addr == 0x4002:
+		val = cs.APU.Pulse1.readPeriodLowReg()
+	case addr == 0x4003:
+		val = cs.APU.Pulse1.readPeriodHighTimerReg()
+	case addr == 0x4004:
+		val = cs.APU.Pulse2.readVolDutyReg()
+	case addr == 0x4005:
+		val = cs.APU.Pulse2.readSweepReg()
+	case addr == 0x4006:
+		val = cs.APU.Pulse2.readPeriodLowReg()
+	case addr == 0x4007:
+		val = cs.APU.Pulse2.readPeriodHighTimerReg()
+	case addr == 0x4008:
+		val = cs.APU.Triangle.readLinearCounterReg()
+	case addr == 0x400a:
+		val = cs.APU.Triangle.readPeriodLowReg()
+	case addr == 0x400b:
+		val = cs.APU.Triangle.readPeriodHighTimerReg()
 	case addr == 0x4014:
 		val = 0xff // dma reg - write only
 	case addr == 0x4016:
@@ -33,7 +55,9 @@ func (cs *cpuState) read(addr uint16) byte {
 	default:
 		stepErr(fmt.Sprintf("unimplemented read: %v", addr))
 	}
-	fmt.Printf("read(0x%04x) = 0x%02x\n", addr, val)
+	if showMemAccesses {
+		fmt.Printf("read(0x%04x) = 0x%02x\n", addr, val)
+	}
 	return val
 }
 
@@ -57,6 +81,28 @@ func (cs *cpuState) write(addr uint16, val byte) {
 		cs.Mem.InternalRAM[addr&0x07ff] = val
 	case addr >= 0x2000 && addr < 0x4000:
 		cs.ppuWrite(addr, val)
+	case addr == 0x4000:
+		cs.APU.Pulse1.writeVolDutyReg(val)
+	case addr == 0x4001:
+		cs.APU.Pulse1.writeSweepReg(val)
+	case addr == 0x4002:
+		cs.APU.Pulse1.writePeriodLowReg(val)
+	case addr == 0x4003:
+		cs.APU.Pulse1.writePeriodHighTimerReg(val)
+	case addr == 0x4004:
+		cs.APU.Pulse2.writeVolDutyReg(val)
+	case addr == 0x4005:
+		cs.APU.Pulse2.writeSweepReg(val)
+	case addr == 0x4006:
+		cs.APU.Pulse2.writePeriodLowReg(val)
+	case addr == 0x4007:
+		cs.APU.Pulse2.writePeriodHighTimerReg(val)
+	case addr == 0x4008:
+		cs.APU.Triangle.writeLinearCounterReg(val)
+	case addr == 0x400a:
+		cs.APU.Triangle.writePeriodLowReg(val)
+	case addr == 0x400b:
+		cs.APU.Triangle.writePeriodHighTimerReg(val)
 	case addr == 0x4014:
 		cs.oamDMA(val)
 	case addr == 0x4015:
@@ -74,7 +120,9 @@ func (cs *cpuState) write(addr uint16, val byte) {
 	default:
 		stepErr(fmt.Sprintf("unimplemented: write(0x%04x, 0x%02x)", addr, val))
 	}
-	fmt.Printf("write(0x%04x, 0x%02x)\n", addr, val)
+	if showMemAccesses {
+		fmt.Printf("write(0x%04x, 0x%02x)\n", addr, val)
+	}
 }
 
 func (cs *cpuState) ppuRead(addr uint16) byte {

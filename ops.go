@@ -52,6 +52,9 @@ func (cs *cpuState) getIndexedZeroPageAddr(idx byte) uint16 {
 func (cs *cpuState) getAbsoluteAddr() uint16 {
 	return cs.read16(cs.PC + 1)
 }
+func (cs *cpuState) getIndexedAbsoluteAddr(idx byte) uint16 {
+	return uint16(cs.read16(cs.PC+1)) + uint16(idx)
+}
 
 var opcodeNames = []string{
 	"BRK", "ORA", "XXX", "XXX", "XXX", "ORA", "ASL", "XXX", "PHP", "ORA", "ASL", "XXX", "XXX", "ORA", "ASL", "XXX",
@@ -71,6 +74,8 @@ var opcodeNames = []string{
 	"CPX", "SBC", "XXX", "XXX", "CPX", "SBC", "INC", "XXX", "INX", "SBC", "NOP", "XXX", "CPX", "SBC", "INC", "XXX",
 	"BEQ", "SBC", "XXX", "XXX", "XXX", "SBC", "INC", "XXX", "SED", "SBC", "XXX", "XXX", "XXX", "SBC", "INC", "XXX",
 }
+
+const showMemAccesses = false
 
 func (cs *cpuState) stepOpcode() {
 
@@ -97,15 +102,21 @@ func (cs *cpuState) stepOpcode() {
 		cs.branchOpRel(cs.P&flagNeg == 0)
 	case 0x18: // CLC (clear carry flag)
 		cs.opFn(2, 1, func() { cs.P &^= flagCarry })
+	case 0x19: // ORA absolute,y
+		// TODO: add cycle when crossing page boundary
+		result := cs.A | cs.read(cs.getIndexedAbsoluteAddr(cs.Y))
+		cs.setRegOp(4, 3, &cs.A, result, cs.setZeroNeg)
 
 	case 0x20: // JSR (jump and store return addr)
 		cs.push16(cs.PC + 2)
 		cs.jmpOp(6, 3, cs.getAbsoluteAddr())
 	case 0x24: // BIT (zeropage)
-		val := cs.read(cs.getZeroPageAddr())
-		cs.P &^= 0xC0
-		cs.P |= val & 0xC0
-		cs.setZeroFlag(cs.A^val == 0)
+		cs.opFn(3, 2, func() {
+			val := cs.read(cs.getZeroPageAddr())
+			cs.P &^= 0xC0
+			cs.P |= val & 0xC0
+			cs.setZeroFlag(cs.A^val == 0)
+		})
 	case 0x25: // AND (zeropage)
 		result := cs.A & cs.read(cs.getZeroPageAddr())
 		cs.setRegOp(3, 2, &cs.A, result, cs.setZeroNeg)
@@ -136,7 +147,7 @@ func (cs *cpuState) stepOpcode() {
 		result := cs.lsrAndSetFlags(cs.read(cs.getZeroPageAddr()))
 		cs.storeOp(5, 2, cs.getZeroPageAddr(), result, cs.setNoFlags)
 	case 0x48: // PHA (push A onto stack)
-		cs.opFn(3, 1, func() { cs.push8(cs.A) })
+		cs.opFn(3, 1, func() { cs.push(cs.A) })
 	case 0x49: // EOR imm (exclusive or)
 		result := cs.A ^ cs.read(cs.PC+1)
 		cs.setRegOp(2, 2, &cs.A, result, cs.setZeroNeg)
@@ -159,6 +170,8 @@ func (cs *cpuState) stepOpcode() {
 	case 0x69: // ADC imm
 		val := cs.read(cs.PC + 1)
 		cs.opFn(2, 2, func() { cs.A = cs.adcAndSetFlags(val) })
+	case 0x6a: // ROR A
+		cs.opFn(2, 1, func() { cs.A = cs.rorAndSetFlags(cs.A) })
 	case 0x6d: // ADC imm (absolute)
 		val := cs.read(cs.getAbsoluteAddr())
 		cs.opFn(4, 3, func() { cs.A = cs.adcAndSetFlags(val) })
@@ -176,6 +189,8 @@ func (cs *cpuState) stepOpcode() {
 		cs.setRegOp(2, 1, &cs.Y, cs.Y-1, cs.setZeroNeg)
 	case 0x8a: // TXA (transfer x to a)
 		cs.setRegOp(2, 1, &cs.A, cs.X, cs.setZeroNeg)
+	case 0x8c: // STY absolute
+		cs.storeOp(4, 3, cs.getAbsoluteAddr(), cs.Y, cs.setNoFlags)
 	case 0x8d: // STA absolute
 		cs.storeOp(4, 3, cs.getAbsoluteAddr(), cs.A, cs.setNoFlags)
 	case 0x8e: // STX absolute
@@ -193,8 +208,7 @@ func (cs *cpuState) stepOpcode() {
 	case 0x9a: // TXS (transfer x to s)
 		cs.setRegOp(2, 1, &cs.S, cs.X, cs.setNoFlags)
 	case 0x9d: // STA absolute,x
-		addr := cs.getAbsoluteAddr() + uint16(cs.X)
-		cs.storeOp(5, 3, addr, cs.A, cs.setNoFlags)
+		cs.storeOp(5, 3, cs.getIndexedAbsoluteAddr(cs.X), cs.A, cs.setNoFlags)
 
 	case 0xa0: // LDY imm
 		cs.setRegOp(2, 2, &cs.Y, cs.read(cs.PC+1), cs.setZeroNeg)
@@ -223,22 +237,23 @@ func (cs *cpuState) stepOpcode() {
 		// TODO: adjust cycles if page boundary crossed
 		cs.setRegOp(5, 2, &cs.A, cs.read(cs.getYPostIndexedAddr()), cs.setZeroNeg)
 	case 0xb4: // LDY zeropage, x
-		addr := cs.getIndexedZeroPageAddr(cs.X)
-		cs.setRegOp(4, 2, &cs.Y, cs.read(addr), cs.setZeroNeg)
+		cs.setRegOp(4, 2, &cs.Y, cs.read(cs.getIndexedZeroPageAddr(cs.X)), cs.setZeroNeg)
 	case 0xb5: // LDA zeropage, x
-		addr := cs.getIndexedZeroPageAddr(cs.X)
-		cs.setRegOp(4, 2, &cs.A, cs.read(addr), cs.setZeroNeg)
+		cs.setRegOp(4, 2, &cs.A, cs.read(cs.getIndexedZeroPageAddr(cs.X)), cs.setZeroNeg)
+	case 0xb9: // LDA absolute, y
+		cs.setRegOp(4, 3, &cs.A, cs.read(cs.getIndexedAbsoluteAddr(cs.Y)), cs.setZeroNeg)
 	case 0xbd: // LDA absolute, x
-		addr := cs.getAbsoluteAddr() + uint16(cs.X)
-		cs.setRegOp(4, 3, &cs.A, cs.read(addr), cs.setZeroNeg)
+		cs.setRegOp(4, 3, &cs.A, cs.read(cs.getIndexedAbsoluteAddr(cs.X)), cs.setZeroNeg)
 
+	case 0xc0: // CPY imm
+		cs.cmpOp(2, 2, cs.Y, cs.read(cs.PC+1))
 	case 0xc6: // DEC zeropage
 		addr := cs.getZeroPageAddr()
 		cs.storeOp(5, 2, addr, cs.read(addr)-1, cs.setZeroNeg)
 	case 0xce: // DEC absolute
 		addr := cs.getAbsoluteAddr()
 		cs.storeOp(6, 3, addr, cs.read(addr)-1, cs.setZeroNeg)
-	case 0xc4: // CPY (zeropage) (compare y)
+	case 0xc4: // CPY (zeropage)
 		cs.cmpOp(3, 2, cs.Y, cs.read(cs.getZeroPageAddr()))
 	case 0xc8: // INY (increment y)
 		cs.setRegOp(2, 1, &cs.Y, cs.Y+1, cs.setZeroNeg)
@@ -255,9 +270,17 @@ func (cs *cpuState) stepOpcode() {
 	case 0xd8: // CLD (clear decimal mode)
 		cs.opFn(2, 1, func() { cs.P &^= flagDecimal })
 
+	case 0xe0: // CPX imm
+		cs.cmpOp(2, 2, cs.X, cs.read(cs.PC+1))
 	case 0xe5: // SBC (zeropage)
 		val := cs.read(cs.getZeroPageAddr())
 		cs.opFn(3, 2, func() { cs.A = cs.sbcAndSetFlags(val) })
+	case 0xe6: // INC zeropage
+		addr := cs.getZeroPageAddr()
+		cs.storeOp(5, 2, addr, cs.read(addr)+1, cs.setZeroNeg)
+	case 0xe9: // SBC imm
+		val := cs.read(cs.PC + 1)
+		cs.opFn(2, 2, func() { cs.A = cs.sbcAndSetFlags(val) })
 	case 0xe8: // INX (increment x)
 		cs.setRegOp(2, 1, &cs.X, cs.X+1, cs.setZeroNeg)
 	case 0xee: // INC absolute

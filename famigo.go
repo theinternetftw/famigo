@@ -75,12 +75,17 @@ func (cs *cpuState) runCycles(cycles uint) {
 }
 
 func (cs *cpuState) debugStatusLine() string {
-	fmt.Println()
+	if showMemAccesses {
+		fmt.Println()
+	}
 	opcode := cs.read(cs.PC)
 	b2, b3 := cs.read(cs.PC+1), cs.read(cs.PC+2)
+	sp := 0x100 + uint16(cs.S)
+	s1, s2, s3 := cs.read(sp), cs.read(sp+1), cs.read(sp+2)
 	return fmt.Sprintf("Steps: %09d ", cs.Steps) +
 		fmt.Sprintf("PC:%04x ", cs.PC) +
-		fmt.Sprintf("*PC[0:2]:%02x%02x%02x ", opcode, b2, b3) +
+		fmt.Sprintf("*PC[:3]:%02x%02x%02x ", opcode, b2, b3) +
+		fmt.Sprintf("*S[:3]:%02x%02x%02x ", s1, s2, s3) +
 		fmt.Sprintf("opcode:%v ", opcodeNames[opcode]) +
 		fmt.Sprintf("S:%02x ", cs.S) +
 		fmt.Sprintf("A:%02x ", cs.A) +
@@ -111,37 +116,37 @@ func (cs *cpuState) handleInterrupts() {
 	} else if cs.NMI {
 		cs.NMI = false
 		cs.push16(cs.PC)
-		cs.push8(cs.P | flagOnStack)
+		cs.push(cs.P | flagOnStack)
 		cs.P |= flagIrqDisabled
 		cs.PC = cs.read16(0xfffa)
 	} else if cs.IRQ && cs.interruptsEnabled() {
 		cs.IRQ = false
 		cs.push16(cs.PC)
-		cs.push8(cs.P | flagBrk | flagOnStack)
+		cs.push(cs.P | flagBrk | flagOnStack)
 		cs.P |= flagIrqDisabled
 		cs.PC = cs.read16(0xfffe)
 	} else if cs.BRK {
 		cs.BRK = false
 		cs.push16(cs.PC)
-		cs.push8(cs.P | flagBrk | flagOnStack)
+		cs.push(cs.P | flagBrk | flagOnStack)
 		cs.P |= flagIrqDisabled
 		cs.PC = cs.read16(0xfffe)
 	}
 }
 
 func (cs *cpuState) push16(val uint16) {
-	cs.S -= 2
-	cs.write16(0x100+uint16(cs.S), val)
+	cs.push(byte(val >> 8))
+	cs.push(byte(val))
 }
-func (cs *cpuState) push8(val byte) {
+func (cs *cpuState) push(val byte) {
 	cs.S--
 	cs.write(0x100+uint16(cs.S), val)
 }
 
 func (cs *cpuState) pop16() uint16 {
-	result := cs.read16(0x100 + uint16(cs.S))
-	cs.S += 2
-	return result
+	val := uint16(cs.pop())
+	val |= uint16(cs.pop()) << 8
+	return val
 }
 func (cs *cpuState) pop() byte {
 	result := cs.read(0x100 + uint16(cs.S))

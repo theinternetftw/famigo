@@ -87,11 +87,11 @@ func (cs *cpuState) debugStatusLine() string {
 		fmt.Sprintf("*PC[:3]:%02x%02x%02x ", opcode, b2, b3) +
 		fmt.Sprintf("*S[:3]:%02x%02x%02x ", s1, s2, s3) +
 		fmt.Sprintf("opcode:%v ", opcodeNames[opcode]) +
-		fmt.Sprintf("S:%02x ", cs.S) +
 		fmt.Sprintf("A:%02x ", cs.A) +
-		fmt.Sprintf("P:%02x ", cs.P) +
 		fmt.Sprintf("X:%02x ", cs.X) +
 		fmt.Sprintf("Y:%02x ", cs.Y) +
+		fmt.Sprintf("P:%02x ", cs.P) +
+		fmt.Sprintf("S:%02x ", cs.S) +
 		fmt.Sprintf("IRQ:%v ", cs.IRQ) +
 		fmt.Sprintf("BRK:%v ", cs.BRK) +
 		fmt.Sprintf("NMI:%v ", cs.NMI) +
@@ -113,6 +113,9 @@ func (cs *cpuState) handleInterrupts() {
 	if cs.RESET {
 		cs.RESET = false
 		cs.PC = cs.read16(0xfffc)
+		cs.S -= 3
+		cs.P |= flagIrqDisabled
+		fmt.Printf("STARTPC NOW: 0x%04x\r\n", cs.PC)
 	} else if cs.NMI {
 		cs.NMI = false
 		cs.push16(cs.PC)
@@ -180,8 +183,16 @@ func newState(romBytes []byte) *cpuState {
 			PrgROM: romBytes[prgStart:prgEnd],
 			ChrROM: romBytes[chrStart:chrEnd],
 		},
-		RESET: true,
+		//RESET: true,
 	}
+
+	// NOTE: these are already in RESET fn
+	// remove them after nestest
+	cs.S -= 3
+	cs.P |= flagIrqDisabled
+
+	cs.PC = 0xc000 // tmp for nestest
+
 	return &cs
 }
 

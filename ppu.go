@@ -165,10 +165,12 @@ func (ppu *ppu) getNametableBase() uint16 {
 	return 0x2000 + 0x400*uint16(ppu.NametableBaseSelector)
 }
 func (ppu *ppu) getCurrentNametableTileAddr() uint16 {
-	return ppu.getNametableBase() + uint16(ppu.getBGY()>>3)*32 + uint16(ppu.getBGX()>>3)
+	return ppu.getNametableBase() +
+		uint16(ppu.getY()>>3)*32 + uint16(ppu.getX()>>3)
 }
 func (ppu *ppu) getCurrentNametableAttributeAddr() uint16 {
-	return ppu.getNametableBase() + (0x400 - 64) + uint16(ppu.getBGY()>>5)*8 + uint16(ppu.getBGX()>>5)
+	return (ppu.getCurrentNametableTileAddr() & 0x3c00) + (0x400 - 64) +
+		uint16((ppu.getY()&0xff)>>5)*8 + uint16((ppu.getX()&0xff)>>5)
 }
 func (ppu *ppu) getPatternAddr(tileID byte) uint16 {
 	addr := uint16(tileID) << 4
@@ -177,11 +179,37 @@ func (ppu *ppu) getPatternAddr(tileID byte) uint16 {
 	}
 	return addr
 }
-func (ppu *ppu) getBGX() byte { return byte(ppu.LineX) + ppu.ScrollX }
-func (ppu *ppu) getBGY() byte { return byte(ppu.LineY) + ppu.ScrollY }
+
+func (ppu *ppu) getX() byte { return byte(ppu.LineX) + ppu.ScrollX }
+func (ppu *ppu) getY() byte { return byte(ppu.LineY) + ppu.ScrollY }
+
+func (ppu *ppu) getPattern(cs *cpuState, tileID byte, x, y byte) byte {
+	patternAddr := ppu.getPatternAddr(tileID) + uint16(y&0x07)
+	patternPlane0 := ppu.read(cs, patternAddr)
+	patternPlane1 := ppu.read(cs, patternAddr+8)
+	patternBit0 := (patternPlane0 >> (7 - (x & 0x07))) & 0x01
+	patternBit1 := (patternPlane1 >> (7 - (x & 0x07))) & 0x01
+	return byte((patternBit1 << 1) | patternBit0)
+}
 
 func (ppu *ppu) read(cs *cpuState, addr uint16) byte {
 	return cs.Mem.MMC.ReadVRAM(&cs.Mem, addr)
+}
+
+var defaultPalette = []byte{
+	84, 84, 84, 0, 30, 116, 8, 16, 144, 48, 0, 136, 68, 0, 100, 92, 0, 48, 84, 4, 0, 60, 24, 0,
+	32, 42, 0, 8, 58, 0, 0, 64, 0, 0, 60, 0, 0, 50, 60, 0, 0, 0, 152, 150, 152, 8, 76, 196,
+	48, 50, 236, 92, 30, 228, 136, 20, 176, 160, 20, 100, 152, 34, 32, 120, 60, 0, 84, 90, 0, 40, 114, 0,
+	8, 124, 0, 0, 118, 40, 0, 102, 120, 0, 0, 0, 236, 238, 236, 76, 154, 236, 120, 124, 236, 176, 98, 236,
+	228, 84, 236, 236, 88, 180, 236, 106, 100, 212, 136, 32, 160, 170, 0, 116, 196, 0, 76, 208, 32, 56, 204, 108,
+	56, 180, 204, 60, 60, 60, 236, 238, 236, 168, 204, 236, 188, 188, 236, 212, 178, 236, 236, 174, 236, 236, 174, 212,
+	236, 180, 176, 228, 196, 144, 204, 210, 120, 180, 222, 120, 168, 226, 144, 152, 226, 180, 160, 214, 228, 160, 162, 160,
+}
+
+func (ppu *ppu) getPaletteIDFromAttributeByte(attributes byte, x, y byte) byte {
+	attrX := (x >> 4) & 0x01
+	attrY := (y >> 4) & 0x01
+	return (attributes >> (attrX * 2) >> (attrY * 4)) & 0x03
 }
 
 func (ppu *ppu) runCycle(cs *cpuState) {
@@ -197,24 +225,35 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 		} else if ppu.LineY == -1 {
 			ppu.ScrollY = ppu.RequestedScrollY
 		}
+
 	case ppu.PPUCyclesSinceYInc >= 1 && ppu.PPUCyclesSinceYInc <= 256:
 		if ppu.LineY >= 0 && ppu.LineY < 240 && ppu.PPUCyclesSinceYInc&0x07 == 0 {
 			for i := 0; i < 8; i++ {
-				tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
-				patternAddr := ppu.getPatternAddr(tileID) + uint16(ppu.getBGY()&0x07)
-				patternPlane0 := ppu.read(cs, patternAddr)
-				patternPlane1 := ppu.read(cs, patternAddr+8)
-				patternBit0 := (patternPlane0 >> (7 - (ppu.getBGX() & 0x07))) & 0x01
-				patternBit1 := (patternPlane1 >> (7 - (ppu.getBGX() & 0x07))) & 0x01
-				pattern := (patternBit1 << 1) | patternBit0
-
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4] = pattern * 0x40
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+1] = pattern * 0x40
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+2] = pattern * 0x40
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+3] = pattern * 0x40
+				x, y := ppu.getX(), ppu.getY()
+				if ppu.ShowBG {
+					tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
+					pattern := ppu.getPattern(cs, tileID, x, y)
+					var color byte
+					if pattern == 0 {
+						color = ppu.PaletteRAM[0] // universal background color
+					} else {
+						attributeByte := ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
+						paletteID := ppu.getPaletteIDFromAttributeByte(attributeByte, x, y)
+						colorAddr := (paletteID << 2) | pattern
+						color = ppu.PaletteRAM[colorAddr] & 0x3f
+					}
+					r := defaultPalette[color*3]
+					g := defaultPalette[color*3+1]
+					b := defaultPalette[color*3+2]
+					ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4] = r
+					ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+1] = g
+					ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+2] = b
+					ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+3] = 0xff
+				}
 				ppu.LineX++
 			}
 		}
+
 	case ppu.PPUCyclesSinceYInc == 340:
 		ppu.PPUCyclesSinceYInc = 0
 		ppu.LineX = 0

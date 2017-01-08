@@ -165,9 +165,23 @@ func (ppu *ppu) getNametableBase() uint16 {
 	return 0x2000 + 0x400*uint16(ppu.NametableBaseSelector)
 }
 func (ppu *ppu) getCurrentNametableTileAddr() uint16 {
-	return ppu.getNametableBase() +
-		uint16((byte(ppu.LineY)+ppu.ScrollY)>>3)*32 +
-		uint16((byte(ppu.LineX)+ppu.ScrollX)>>3)
+	return ppu.getNametableBase() + uint16(ppu.getBGY()>>3)*32 + uint16(ppu.getBGX()>>3)
+}
+func (ppu *ppu) getCurrentNametableAttributeAddr() uint16 {
+	return ppu.getNametableBase() + (0x400 - 64) + uint16(ppu.getBGY()>>5)*8 + uint16(ppu.getBGX()>>5)
+}
+func (ppu *ppu) getPatternAddr(tileID byte) uint16 {
+	addr := uint16(tileID) << 4
+	if ppu.UseUpperBGPatternTable {
+		addr |= 0x1000
+	}
+	return addr
+}
+func (ppu *ppu) getBGX() byte { return byte(ppu.LineX) + ppu.ScrollX }
+func (ppu *ppu) getBGY() byte { return byte(ppu.LineY) + ppu.ScrollY }
+
+func (ppu *ppu) read(cs *cpuState, addr uint16) byte {
+	return cs.Mem.MMC.ReadVRAM(&cs.Mem, addr)
 }
 
 func (ppu *ppu) runCycle(cs *cpuState) {
@@ -186,12 +200,18 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 	case ppu.PPUCyclesSinceYInc >= 1 && ppu.PPUCyclesSinceYInc <= 256:
 		if ppu.LineY >= 0 && ppu.LineY < 240 && ppu.PPUCyclesSinceYInc&0x07 == 0 {
 			for i := 0; i < 8; i++ {
-				tileID := cs.Mem.MMC.ReadVRAM(&cs.Mem, ppu.getCurrentNametableTileAddr())
-				//fmt.Printf("%02x, %02x, %02x, %04x, %04x, %02x\n", ppu.LineY, ppu.LineX, ppu.NametableBaseSelector, ppu.getNametableBase(), ppu.getCurrentNametableTileAddr(), tileID)
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4] = tileID
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+1] = tileID
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+2] = tileID
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+3] = tileID
+				tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
+				patternAddr := ppu.getPatternAddr(tileID) + uint16(ppu.getBGY()&0x07)
+				patternPlane0 := ppu.read(cs, patternAddr)
+				patternPlane1 := ppu.read(cs, patternAddr+8)
+				patternBit0 := (patternPlane0 >> (7 - (ppu.getBGX() & 0x07))) & 0x01
+				patternBit1 := (patternPlane1 >> (7 - (ppu.getBGX() & 0x07))) & 0x01
+				pattern := (patternBit1 << 1) | patternBit0
+
+				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4] = pattern * 0x40
+				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+1] = pattern * 0x40
+				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+2] = pattern * 0x40
+				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+3] = pattern * 0x40
 				ppu.LineX++
 			}
 		}

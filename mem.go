@@ -22,6 +22,8 @@ func (cs *cpuState) read(addr uint16) byte {
 		val = 0xff // apu control regs, write only
 	case addr == 0x4014:
 		val = 0xff // dma reg - write only
+	case addr == 0x4015:
+		val = cs.APU.readStatusReg()
 	case addr == 0x4016:
 		val = cs.readJoypadReg1()
 	case addr == 0x4017:

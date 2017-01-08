@@ -27,7 +27,7 @@ func main() {
 	fmt.Println("CHR ROM SIZE:", cartInfo.GetROMSizeChr())
 	fmt.Println("MAPPER NUM:", cartInfo.GetMapperNumber())
 
-	platform.InitDisplayLoop(256*2, 240*2, 256, 240, func(sharedState *platform.WindowState) {
+	platform.InitDisplayLoop(256*2+40, 240*2+40, 256, 240, func(sharedState *platform.WindowState) {
 		startEmu(cartFilename, sharedState, romBytes)
 	})
 }

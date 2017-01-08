@@ -80,28 +80,38 @@ func (cs *cpuState) debugStatusLine() string {
 	}
 	opcode := cs.read(cs.PC)
 	b2, b3 := cs.read(cs.PC+1), cs.read(cs.PC+2)
-	sp := 0x100 + uint16(cs.S)
-	s1, s2, s3 := cs.read(sp), cs.read(sp+1), cs.read(sp+2)
-	return fmt.Sprintf("Steps: %09d ", cs.Steps) +
-		fmt.Sprintf("PC:%04x ", cs.PC) +
-		fmt.Sprintf("*PC[:3]:%02x%02x%02x ", opcode, b2, b3) +
-		fmt.Sprintf("*S[:3]:%02x%02x%02x ", s1, s2, s3) +
-		fmt.Sprintf("opcode:%v ", opcodeNames[opcode]) +
-		fmt.Sprintf("A:%02x ", cs.A) +
-		fmt.Sprintf("X:%02x ", cs.X) +
-		fmt.Sprintf("Y:%02x ", cs.Y) +
-		fmt.Sprintf("P:%02x ", cs.P) +
-		fmt.Sprintf("S:%02x ", cs.S) +
-		fmt.Sprintf("IRQ:%v ", cs.IRQ) +
-		fmt.Sprintf("BRK:%v ", cs.BRK) +
-		fmt.Sprintf("NMI:%v ", cs.NMI) +
-		fmt.Sprintf("RESET:%v", cs.RESET)
+	/*
+		sp := 0x100 + uint16(cs.S)
+		s1, s2, s3 := cs.read(sp), cs.read(sp+1), cs.read(sp+2)
+		return fmt.Sprintf("Steps: %09d ", cs.Steps) +
+			fmt.Sprintf("PC:%04x ", cs.PC) +
+			fmt.Sprintf("*PC[:3]:%02x%02x%02x ", opcode, b2, b3) +
+			fmt.Sprintf("*S[:3]:%02x%02x%02x ", s1, s2, s3) +
+			fmt.Sprintf("opcode:%v ", opcodeNames[opcode]) +
+			fmt.Sprintf("A:%02x ", cs.A) +
+			fmt.Sprintf("X:%02x ", cs.X) +
+			fmt.Sprintf("Y:%02x ", cs.Y) +
+			fmt.Sprintf("P:%02x ", cs.P) +
+			fmt.Sprintf("S:%02x ", cs.S) +
+			fmt.Sprintf("IRQ:%v ", cs.IRQ) +
+			fmt.Sprintf("BRK:%v ", cs.BRK) +
+			fmt.Sprintf("NMI:%v ", cs.NMI) +
+			fmt.Sprintf("RESET:%v", cs.RESET)
+	*/
+	return fmt.Sprintf("%04X  ", cs.PC) +
+		fmt.Sprintf("%02X %02X %02X  ", opcode, b2, b3) +
+		fmt.Sprintf("%v                             ", opcodeNames[opcode]) +
+		fmt.Sprintf("A:%02X ", cs.A) +
+		fmt.Sprintf("X:%02X ", cs.X) +
+		fmt.Sprintf("Y:%02X ", cs.Y) +
+		fmt.Sprintf("P:%02X ", cs.P) +
+		fmt.Sprintf("SP:%02X", cs.S)
 }
 
 const (
 	flagNeg         = 0x80
 	flagOverflow    = 0x40
-	flagOnStack     = 0x10
+	flagOnStack     = 0x20
 	flagBrk         = 0x10
 	flagDecimal     = 0x08 // unused
 	flagIrqDisabled = 0x04
@@ -142,8 +152,8 @@ func (cs *cpuState) push16(val uint16) {
 	cs.push(byte(val))
 }
 func (cs *cpuState) push(val byte) {
-	cs.S--
 	cs.write(0x100+uint16(cs.S), val)
+	cs.S--
 }
 
 func (cs *cpuState) pop16() uint16 {
@@ -152,8 +162,8 @@ func (cs *cpuState) pop16() uint16 {
 	return val
 }
 func (cs *cpuState) pop() byte {
-	result := cs.read(0x100 + uint16(cs.S))
 	cs.S++
+	result := cs.read(0x100 + uint16(cs.S))
 	return result
 }
 
@@ -183,15 +193,8 @@ func newState(romBytes []byte) *cpuState {
 			PrgROM: romBytes[prgStart:prgEnd],
 			ChrROM: romBytes[chrStart:chrEnd],
 		},
-		//RESET: true,
+		RESET: true,
 	}
-
-	// NOTE: these are already in RESET fn
-	// remove them after nestest
-	cs.S -= 3
-	cs.P |= flagIrqDisabled
-
-	cs.PC = 0xc000 // tmp for nestest
 
 	return &cs
 }

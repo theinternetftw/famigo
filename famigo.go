@@ -136,7 +136,7 @@ func (cs *cpuState) handleInterrupts() {
 		cs.PC = cs.read16(0xfffe)
 	} else if cs.BRK {
 		cs.BRK = false
-		cs.push16(cs.PC)
+		cs.push16(cs.PC + 1)
 		cs.push(cs.P | flagBrk | flagOnStack)
 		cs.P |= flagIrqDisabled
 		cs.PC = cs.read16(0xfffe)

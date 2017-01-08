@@ -107,8 +107,6 @@ const showMemAccesses = false
 
 func (cs *cpuState) stepOpcode() {
 
-	fmt.Println(cs.debugStatusLine())
-
 	opcode := cs.read(cs.PC)
 	switch opcode {
 	case 0x00: // BRK

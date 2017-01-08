@@ -1,6 +1,8 @@
 package famigo
 
 type ppu struct {
+	FrameBuffer [256 * 240 * 4]byte
+
 	GenerateVBlankNMIs         bool
 	MasterSlaveExtSelector     bool
 	UseBigSprites              bool
@@ -16,8 +18,9 @@ type ppu struct {
 
 	SharedReg byte
 
-	CyclesSinceYInc int
-	LineY           int
+	PPUCyclesSinceYInc int
+	LineY              int
+	LineX              int
 
 	EmphasizeBlue           bool
 	EmphasizeGreen          bool
@@ -28,7 +31,8 @@ type ppu struct {
 	ShowBGInLeftBorder      bool
 	UseGreyscale            bool
 
-	RequestedScrollX  byte
+	ScrollX           byte
+	ScrollY           byte
 	RequestedScrollY  byte
 	ScrollRegSelector byte
 
@@ -64,8 +68,12 @@ func (ppu *ppu) readOAMAddrReg() byte {
 }
 
 func (ppu *ppu) writeDataReg(mem *mem, val byte) {
-	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x3f20 {
-		ppu.PaletteRAM[ppu.AddrReg-0x3f00] = val
+	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x4000 {
+		addr := (ppu.AddrReg - 0x3f00) & 0x1f
+		ppu.PaletteRAM[addr] = val
+	} else if ppu.AddrReg >= 0x2000 && ppu.AddrReg < 0x3f00 {
+		addr := ppu.AddrReg & 0x2fff
+		mem.MMC.WriteVRAM(mem, addr, val)
 	} else {
 		mem.MMC.WriteVRAM(mem, ppu.AddrReg, val)
 	}
@@ -74,11 +82,17 @@ func (ppu *ppu) writeDataReg(mem *mem, val byte) {
 	} else {
 		ppu.AddrReg++
 	}
+	ppu.AddrReg &= 0x3fff
 }
+
 func (ppu *ppu) readDataReg(mem *mem) byte {
 	var val byte
-	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x3f20 {
-		val = ppu.PaletteRAM[ppu.AddrReg-0x3f00]
+	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x4000 {
+		addr := (ppu.AddrReg - 0x3f00) & 0x1f
+		val = ppu.PaletteRAM[addr]
+	} else if ppu.AddrReg >= 0x2000 && ppu.AddrReg < 0x3f00 {
+		addr := ppu.AddrReg & 0x2fff
+		val = mem.MMC.ReadVRAM(mem, addr)
 	} else {
 		val = mem.MMC.ReadVRAM(mem, ppu.AddrReg)
 	}
@@ -87,6 +101,7 @@ func (ppu *ppu) readDataReg(mem *mem) byte {
 	} else {
 		ppu.AddrReg++
 	}
+	ppu.AddrReg &= 0x3fff
 	return val
 }
 
@@ -94,6 +109,10 @@ func (ppu *ppu) writeAddrReg(val byte) {
 	if ppu.AddrRegSelector == 0 {
 		ppu.AddrReg &^= 0xff00
 		ppu.AddrReg |= uint16(val) << 8
+		// NOTE: take this and out if
+		// nobody really uses this and
+		// it's just hiding bugs...
+		ppu.AddrReg &= 0x3fff
 		ppu.AddrRegSelector = 1
 	} else {
 		ppu.AddrReg &^= 0x00ff
@@ -107,7 +126,7 @@ func (ppu *ppu) readAddrReg() byte {
 
 func (ppu *ppu) writeScrollReg(val byte) {
 	if ppu.ScrollRegSelector == 0 {
-		ppu.RequestedScrollX = val
+		ppu.ScrollX = val
 		ppu.ScrollRegSelector = 1
 	} else {
 		ppu.RequestedScrollY = val
@@ -142,29 +161,52 @@ const (
 	masterSlavePPUWrites = true
 )
 
+func (ppu *ppu) getNametableBase() uint16 {
+	return 0x2000 + 0x400*uint16(ppu.NametableBaseSelector)
+}
+func (ppu *ppu) getCurrentNametableTileAddr() uint16 {
+	return ppu.getNametableBase() +
+		uint16((byte(ppu.LineY)+ppu.ScrollY)>>3)*32 +
+		uint16((byte(ppu.LineX)+ppu.ScrollX)>>3)
+}
+
 func (ppu *ppu) runCycle(cs *cpuState) {
-	switch ppu.CyclesSinceYInc {
-	case 1:
+	switch {
+	case ppu.PPUCyclesSinceYInc == 1:
 		if ppu.LineY == 241 {
 			ppu.InVBlank = true
 			ppu.VBlankAlert = true
+			cs.flipRequested = true
 			if ppu.GenerateVBlankNMIs {
 				cs.NMI = true
 			}
+		} else if ppu.LineY == -1 {
+			ppu.ScrollY = ppu.RequestedScrollY
 		}
-	case 257:
-	case 321:
-	case 337:
-	case 340:
-		ppu.CyclesSinceYInc = 0
+	case ppu.PPUCyclesSinceYInc >= 1 && ppu.PPUCyclesSinceYInc <= 256:
+		if ppu.LineY >= 0 && ppu.LineY < 240 && ppu.PPUCyclesSinceYInc&0x07 == 0 {
+			for i := 0; i < 8; i++ {
+				tileID := cs.Mem.MMC.ReadVRAM(&cs.Mem, ppu.getCurrentNametableTileAddr())
+				//fmt.Printf("%02x, %02x, %02x, %04x, %04x, %02x\n", ppu.LineY, ppu.LineX, ppu.NametableBaseSelector, ppu.getNametableBase(), ppu.getCurrentNametableTileAddr(), tileID)
+				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4] = tileID
+				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+1] = tileID
+				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+2] = tileID
+				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+3] = tileID
+				ppu.LineX++
+			}
+		}
+	case ppu.PPUCyclesSinceYInc == 340:
+		ppu.PPUCyclesSinceYInc = 0
+		ppu.LineX = 0
 		ppu.LineY++
 		if ppu.LineY == 260 {
 			ppu.InVBlank = false
+			ppu.VBlankAlert = false
 			ppu.LineY = -1
 		}
 	}
 
-	ppu.CyclesSinceYInc++
+	ppu.PPUCyclesSinceYInc++
 }
 
 func (ppu *ppu) writeControlReg(val byte) {

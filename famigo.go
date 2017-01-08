@@ -8,8 +8,9 @@ import (
 type cpuState struct {
 	Mem mem
 
-	PPU ppu
-	APU apu
+	flipRequested bool
+	PPU           ppu
+	APU           apu
 
 	PC            uint16
 	P, A, X, Y, S byte
@@ -91,11 +92,7 @@ func (cs *cpuState) debugStatusLine() string {
 		fmt.Sprintf("X:%02x ", cs.X) +
 		fmt.Sprintf("Y:%02x ", cs.Y) +
 		fmt.Sprintf("P:%02x ", cs.P) +
-		fmt.Sprintf("S:%02x ", cs.S) +
-		fmt.Sprintf("IRQ:%v ", cs.IRQ) +
-		fmt.Sprintf("BRK:%v ", cs.BRK) +
-		fmt.Sprintf("NMI:%v ", cs.NMI) +
-		fmt.Sprintf("RESET:%v", cs.RESET)
+		fmt.Sprintf("S:%02x ", cs.S)
 	/*
 		return fmt.Sprintf("%04X  ", cs.PC) +
 			fmt.Sprintf("%02X %02X %02X  ", opcode, b2, b3) +
@@ -125,7 +122,6 @@ func (cs *cpuState) handleInterrupts() {
 		cs.PC = cs.read16(0xfffc)
 		cs.S -= 3
 		cs.P |= flagIrqDisabled
-		fmt.Printf("STARTPC NOW: 0x%04x\r\n", cs.PC)
 	} else if cs.NMI {
 		cs.NMI = false
 		cs.push16(cs.PC)
@@ -177,6 +173,8 @@ func (cs *cpuState) step() {
 	cs.handleInterrupts()
 
 	cs.Steps++
+
+	// fmt.Println(cs.debugStatusLine())
 
 	cs.stepOpcode()
 }

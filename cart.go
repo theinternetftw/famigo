@@ -67,10 +67,10 @@ const (
 
 // GetMirrorInfo needs docs
 func (cart *CartInfo) GetMirrorInfo() MirrorInfo {
-	if cart.Flags6&0x08 != 0 {
+	if cart.Flags6&0x08 == 0x08 {
 		return FourScreenVRAM
 	}
-	if cart.Flags6&0x01 != 0 {
+	if cart.Flags6&0x01 == 0x01 {
 		return VerticalMirroring
 	}
 	return HorizontalMirroring

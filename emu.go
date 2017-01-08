@@ -35,13 +35,15 @@ func (cs *cpuState) UpdateInput(input Input) {
 
 // Framebuffer returns the current state of the screen
 func (cs *cpuState) Framebuffer() []byte {
-	return []byte{}
+	return cs.PPU.FrameBuffer[:]
 }
 
 // FlipRequested indicates if a draw request is pending
 // and clears it before returning
 func (cs *cpuState) FlipRequested() bool {
-	return false
+	result := cs.flipRequested
+	cs.flipRequested = false
+	return result
 }
 
 func (cs *cpuState) Step() {

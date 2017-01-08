@@ -276,6 +276,8 @@ func (cs *cpuState) stepOpcode() {
 	case 0x56: // LSR zeropage,x
 		addr := cs.getIndexedZeroPageAddr(cs.X)
 		cs.storeOp(6, 2, addr, cs.lsrAndSetFlags(cs.read(addr)), cs.setNoFlags)
+	case 0x58: // CLI
+		cs.opFn(2, 1, func() { cs.P &^= flagIrqDisabled })
 	case 0x59: // EOR absolute,y
 		addr, cycles := cs.getIndexedAbsoluteAddr(cs.Y)
 		cs.setRegOp(4+cycles, 3, &cs.A, cs.A^cs.read(addr), cs.setZeroNeg)

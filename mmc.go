@@ -39,8 +39,10 @@ func (m *mapper000) Read(mem *mem, addr uint16) byte {
 }
 func (m *mapper000) Write(mem *mem, addr uint16, val byte) {
 	if addr >= 0x6000 && addr < 0x8000 {
-		// will crash if no RAM, but that's probably what I want atm
-		mem.PrgRAM[(int(addr)-0x6000)&(len(mem.PrgRAM)-1)] = val
+		realAddr := (int(addr) - 0x6000) & (len(mem.PrgRAM) - 1)
+		if realAddr < len(mem.PrgRAM)-1 {
+			mem.PrgRAM[realAddr] = val
+		}
 	}
 	if addr >= 0x8000 {
 		// It's ROM: nop

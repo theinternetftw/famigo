@@ -109,6 +109,14 @@ func (cart *CartInfo) GetROMSizeChr() int {
 	return int(cart.ChrROMSizeCode) * 8 * 1024
 }
 
+// GetRAMSizePrg needs docs
+func (cart *CartInfo) GetRAMSizePrg() int {
+	if cart.IsNES2 {
+		panic("must be updated for nes2.0")
+	}
+	return int(cart.PrgRAMSizeCode) * 8 * 1024
+}
+
 // GetROMOffsetPrg needs docs
 func (cart *CartInfo) GetROMOffsetPrg() int {
 	offs := 16

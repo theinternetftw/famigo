@@ -18,28 +18,8 @@ func (cs *cpuState) read(addr uint16) byte {
 		val = cs.Mem.InternalRAM[addr&0x07ff]
 	case addr >= 0x2000 && addr < 0x4000:
 		val = cs.ppuRead(addr)
-	case addr == 0x4000:
-		val = cs.APU.Pulse1.readVolDutyReg()
-	case addr == 0x4001:
-		val = cs.APU.Pulse1.readSweepReg()
-	case addr == 0x4002:
-		val = cs.APU.Pulse1.readPeriodLowReg()
-	case addr == 0x4003:
-		val = cs.APU.Pulse1.readPeriodHighTimerReg()
-	case addr == 0x4004:
-		val = cs.APU.Pulse2.readVolDutyReg()
-	case addr == 0x4005:
-		val = cs.APU.Pulse2.readSweepReg()
-	case addr == 0x4006:
-		val = cs.APU.Pulse2.readPeriodLowReg()
-	case addr == 0x4007:
-		val = cs.APU.Pulse2.readPeriodHighTimerReg()
-	case addr == 0x4008:
-		val = cs.APU.Triangle.readLinearCounterReg()
-	case addr == 0x400a:
-		val = cs.APU.Triangle.readPeriodLowReg()
-	case addr == 0x400b:
-		val = cs.APU.Triangle.readPeriodHighTimerReg()
+	case addr >= 0x4000 && addr < 0x4014:
+		val = 0xff // apu control regs, write only
 	case addr == 0x4014:
 		val = 0xff // dma reg - write only
 	case addr == 0x4016:
@@ -99,10 +79,28 @@ func (cs *cpuState) write(addr uint16, val byte) {
 		cs.APU.Pulse2.writePeriodHighTimerReg(val)
 	case addr == 0x4008:
 		cs.APU.Triangle.writeLinearCounterReg(val)
+	case addr == 0x4009:
+		// nop
 	case addr == 0x400a:
 		cs.APU.Triangle.writePeriodLowReg(val)
 	case addr == 0x400b:
 		cs.APU.Triangle.writePeriodHighTimerReg(val)
+	case addr == 0x400c:
+		cs.APU.Noise.writeVolDutyReg(val) // duty ignored
+	case addr == 0x400d:
+		// nop
+	case addr == 0x400e:
+		cs.APU.Noise.writeNoiseControlReg(val)
+	case addr == 0x400f:
+		cs.APU.Noise.writeNoiseLength(val)
+	case addr == 0x4010:
+		cs.APU.DMC.writeDMCFlagsAndRate(val)
+	case addr == 0x4011:
+		cs.APU.DMC.writeDMCCurrentValue(val)
+	case addr == 0x4012:
+		cs.APU.DMC.writeDMCSampleAddr(val)
+	case addr == 0x4013:
+		cs.APU.DMC.writeDMCSampleLength(val)
 	case addr == 0x4014:
 		cs.oamDMA(val)
 	case addr == 0x4015:

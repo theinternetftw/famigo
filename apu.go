@@ -1,10 +1,10 @@
 package famigo
 
-import "fmt"
-
 type apu struct {
 	FrameCounterInterruptInhibit bool
 	FrameCounterSequencerMode    byte
+	FrameInterruptRequested      bool
+	FrameCounter                 uint64
 
 	buffer apuCircleBuf
 
@@ -13,8 +13,6 @@ type apu struct {
 	Triangle sound
 	DMC      sound
 	Noise    sound
-
-	FrameInterruptRequested bool
 }
 
 const (
@@ -74,9 +72,33 @@ func (c *apuCircleBuf) mask(i uint) uint { return i & (uint(len(c.buf)) - 1) }
 func (c *apuCircleBuf) size() uint       { return c.writeIndex - c.readIndex }
 func (c *apuCircleBuf) full() bool       { return c.size() == uint(len(c.buf)) }
 
-var lastLeft float64
-
 func (apu *apu) runCycle(cs *cpuState) {
+
+	if apu.FrameCounterSequencerMode == 0 {
+		c := apu.FrameCounter
+		if c == 3728 || c == 7456 || c == 11185 || c == 14914 {
+			apu.runEnvCycle()
+		}
+		if c == 14914 {
+			if !apu.FrameCounterInterruptInhibit {
+				apu.FrameInterruptRequested = true
+				cs.IRQ = true
+			}
+		}
+		if c == 14915 {
+			apu.FrameCounter = 0
+		}
+	} else {
+		c := apu.FrameCounter
+		if c == 3728 || c == 7456 || c == 11185 || c == 18640 {
+			apu.runEnvCycle()
+		}
+		if c == 18641 {
+			apu.FrameCounter = 0
+		}
+	}
+	apu.FrameCounter++
+
 	if !apu.buffer.full() {
 
 		left, right := 0.0, 0.0
@@ -95,11 +117,6 @@ func (apu *apu) runCycle(cs *cpuState) {
 		left = left*2.0 - 1.0
 		right = right*2.0 - 1.0
 
-		if left != lastLeft {
-			lastLeft = left
-			fmt.Println(left)
-		}
-
 		sampleL, sampleR := int16(left*32767.0), int16(right*32767.0)
 		apu.buffer.write([]byte{
 			byte(sampleL & 0xff),
@@ -116,6 +133,12 @@ func (apu *apu) runFreqCycle() {
 	apu.Triangle.runFreqCycle()
 	apu.DMC.runFreqCycle()
 	apu.Noise.runFreqCycle()
+}
+
+func (apu *apu) runEnvCycle() {
+	apu.Pulse1.runEnvCycle()
+	apu.Pulse2.runEnvCycle()
+	apu.Noise.runEnvCycle()
 }
 
 func (sound *sound) runFreqCycle() {
@@ -160,7 +183,7 @@ func (sound *sound) getSample() (float64, float64) {
 		sound.runFreqCycle()
 		switch sound.SoundType {
 		case squareSoundType:
-			vol := float64(sound.InitialVolume) / 15.0
+			vol := float64(sound.getCurrentVolume()) / 15.0
 			if sound.PeriodTimer >= 8 && vol > 0 {
 				if sound.inDutyCycle() {
 					sample = vol
@@ -209,13 +232,42 @@ type sound struct {
 	NoisePeriod      byte
 
 	UsesConstantVolume bool
-	CurrentVolume      byte
 	InitialVolume      byte
+	VolumeDivider      byte
+	VolumeDecayCounter byte
+	VolumeRestart      bool
 
 	PeriodTimer uint16
 
 	LengthCounter     byte
 	LengthCounterHalt bool
+}
+
+func (sound *sound) getCurrentVolume() byte {
+	if sound.UsesConstantVolume {
+		return sound.InitialVolume
+	}
+	return sound.VolumeDecayCounter
+}
+
+func (sound *sound) runEnvCycle() {
+	if sound.VolumeRestart {
+		sound.VolumeRestart = false
+		sound.VolumeDecayCounter = 0x0f
+		sound.VolumeDivider = 0
+	}
+	if sound.VolumeDivider == 0 {
+		sound.VolumeDivider = sound.InitialVolume
+		if sound.VolumeDecayCounter == 0 {
+			// length counter halt also == env loop
+			if sound.LengthCounterHalt {
+				sound.VolumeDecayCounter = 0x0f
+			}
+		} else {
+			sound.VolumeDecayCounter--
+		}
+	}
+	sound.VolumeDivider--
 }
 
 func (sound *sound) writeLinearCounterReg(val byte) {
@@ -233,6 +285,8 @@ func (sound *sound) writePeriodHighTimerReg(val byte) {
 	sound.PeriodTimer &^= 0x0700
 	sound.PeriodTimer |= (uint16(val) & 0x07) << 8
 	sound.LengthCounter = val >> 3
+	sound.VolumeRestart = true
+	sound.T = 0 // nesdev wiki: "sequencer is restarted"
 	sound.updateFreq()
 }
 

@@ -17,7 +17,8 @@ type cpuState struct {
 
 	IRQ, BRK, NMI, RESET bool
 
-	Steps uint64
+	Steps  uint64
+	Cycles uint64
 
 	CurrentJoypad1 Joypad
 	CurrentJoypad2 Joypad // empty for now
@@ -72,6 +73,10 @@ func (cs *cpuState) runCycles(cycles uint) {
 		for j := 0; j < 3; j++ {
 			cs.PPU.runCycle(cs) // ppu clock is 3x cpu
 		}
+		if cs.Cycles&0x01 == 0x01 {
+			cs.APU.runCycle(cs)
+		}
+		cs.Cycles++
 	}
 }
 

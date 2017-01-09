@@ -26,7 +26,7 @@ func NewEmulator(cart []byte) Emulator {
 // A pre-sized buffer must be provided, which is returned resized
 // if the buffer was less full than the length requested.
 func (cs *cpuState) ReadSoundBuffer(toFill []byte) []byte {
-	return []byte{}
+	return cs.APU.buffer.read(toFill)
 }
 
 func (cs *cpuState) UpdateInput(input Input) {

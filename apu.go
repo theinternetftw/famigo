@@ -1,8 +1,12 @@
 package famigo
 
+import "fmt"
+
 type apu struct {
 	FrameCounterInterruptInhibit bool
 	FrameCounterSequencerMode    byte
+
+	buffer apuCircleBuf
 
 	Pulse1   sound
 	Pulse2   sound
@@ -20,10 +24,167 @@ const (
 	noiseSoundType    = 3
 )
 
+func (apu *apu) init() {
+	apu.Pulse1.SoundType = squareSoundType
+	apu.Pulse2.SoundType = squareSoundType
+	apu.Triangle.SoundType = triangleSoundType
+	apu.DMC.SoundType = dmcSoundType
+	apu.Noise.SoundType = noiseSoundType
+}
+
+const (
+	amountGenerateAhead = 4
+	samplesPerSecond    = 44100
+	timePerSample       = 1.0 / samplesPerSecond
+)
+
+const apuCircleBufSize = amountGenerateAhead
+
+// NOTE: size must be power of 2
+type apuCircleBuf struct {
+	writeIndex uint
+	readIndex  uint
+	buf        [apuCircleBufSize]byte
+}
+
+func (c *apuCircleBuf) write(bytes []byte) (writeCount int) {
+	for _, b := range bytes {
+		if c.full() {
+			return writeCount
+		}
+		c.buf[c.mask(c.writeIndex)] = b
+		c.writeIndex++
+		writeCount++
+	}
+	return writeCount
+}
+func (c *apuCircleBuf) read(preSizedBuf []byte) []byte {
+	readCount := 0
+	for i := range preSizedBuf {
+		if c.size() == 0 {
+			break
+		}
+		preSizedBuf[i] = c.buf[c.mask(c.readIndex)]
+		c.readIndex++
+		readCount++
+	}
+	return preSizedBuf[:readCount]
+}
+func (c *apuCircleBuf) mask(i uint) uint { return i & (uint(len(c.buf)) - 1) }
+func (c *apuCircleBuf) size() uint       { return c.writeIndex - c.readIndex }
+func (c *apuCircleBuf) full() bool       { return c.size() == uint(len(c.buf)) }
+
+var lastLeft float64
+
+func (apu *apu) runCycle(cs *cpuState) {
+	if !apu.buffer.full() {
+
+		left, right := 0.0, 0.0
+
+		left0, right0 := apu.Pulse1.getSample()
+		left1, right1 := apu.Pulse2.getSample()
+		// left2, right2 := apu.Triangle.getSample()
+		// left3, right3 := apu.DMC.getSample()
+		// left4, right4 := apu.Noise.getSample()
+		// left = (left0 + left1 + left2 + left3 + left4) * 0.2
+		// right = (right0 + right1 + right2 + right3 + right4) * 0.2
+
+		left = (left0 + left1) * 0.5
+		right = (right0 + right1) * 0.5
+
+		left = left*2.0 - 1.0
+		right = right*2.0 - 1.0
+
+		if left != lastLeft {
+			lastLeft = left
+			fmt.Println(left)
+		}
+
+		sampleL, sampleR := int16(left*32767.0), int16(right*32767.0)
+		apu.buffer.write([]byte{
+			byte(sampleL & 0xff),
+			byte(sampleL >> 8),
+			byte(sampleR & 0xff),
+			byte(sampleR >> 8),
+		})
+	}
+}
+
+func (apu *apu) runFreqCycle() {
+	apu.Pulse1.runFreqCycle()
+	apu.Pulse2.runFreqCycle()
+	apu.Triangle.runFreqCycle()
+	apu.DMC.runFreqCycle()
+	apu.Noise.runFreqCycle()
+}
+
+func (sound *sound) runFreqCycle() {
+
+	sound.T += sound.Freq * timePerSample
+
+	for sound.T > 1.0 {
+		sound.T -= 1.0
+	}
+}
+
+func (sound *sound) updateFreq() {
+	switch sound.SoundType {
+	case dmcSoundType:
+	case noiseSoundType:
+	case triangleSoundType:
+	case squareSoundType:
+		sound.Freq = 1789773.0 / (16.0 * float64(sound.PeriodTimer+1))
+	default:
+		panic("unexpected sound type")
+	}
+}
+
+func (sound *sound) inDutyCycle() bool {
+	switch sound.DutyCycleSelector {
+	case 0:
+		return sound.T > 0.125 && sound.T < 0.250
+	case 1:
+		return sound.T > 0.125 && sound.T < 0.375
+	case 2:
+		return sound.T > 0.125 && sound.T < 0.625
+	case 3:
+		return sound.T < 0.125 || sound.T > 0.375
+	default:
+		panic("unknown wave duty")
+	}
+}
+
+func (sound *sound) getSample() (float64, float64) {
+	sample := 0.0
+	if sound.On {
+		sound.runFreqCycle()
+		switch sound.SoundType {
+		case squareSoundType:
+			vol := float64(sound.InitialVolume) / 15.0
+			if sound.PeriodTimer >= 8 && vol > 0 {
+				if sound.inDutyCycle() {
+					sample = vol
+				} else {
+					sample = 0.0
+				}
+			}
+		case triangleSoundType:
+		case dmcSoundType:
+		case noiseSoundType:
+		}
+	}
+
+	left, right := sample, sample
+	return left, right
+}
+
 type sound struct {
 	SoundType uint8
 
 	On bool
+
+	T    float64
+	Freq float64
 
 	// square waves only
 	DutyCycleSelector byte
@@ -65,12 +226,14 @@ func (sound *sound) writeLinearCounterReg(val byte) {
 func (sound *sound) writePeriodLowReg(val byte) {
 	sound.PeriodTimer &^= 0x00ff
 	sound.PeriodTimer |= uint16(val)
+	sound.updateFreq()
 }
 
 func (sound *sound) writePeriodHighTimerReg(val byte) {
 	sound.PeriodTimer &^= 0x0700
 	sound.PeriodTimer |= (uint16(val) & 0x07) << 8
 	sound.LengthCounter = val >> 3
+	sound.updateFreq()
 }
 
 // square waves only

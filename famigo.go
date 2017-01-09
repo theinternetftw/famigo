@@ -200,6 +200,8 @@ func newState(romBytes []byte) *cpuState {
 		RESET: true,
 	}
 
+	cs.APU.init()
+
 	return &cs
 }
 

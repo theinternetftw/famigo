@@ -78,6 +78,7 @@ func (apu *apu) runCycle(cs *cpuState) {
 		c := apu.FrameCounter
 		if c == 3728 || c == 7456 || c == 11185 || c == 14914 {
 			apu.runEnvCycle()
+			apu.Triangle.runTriangleLengthCycle()
 		}
 		if c == 7456 || c == 14914 {
 			apu.runLengthCycle()
@@ -95,6 +96,7 @@ func (apu *apu) runCycle(cs *cpuState) {
 		c := apu.FrameCounter
 		if c == 3728 || c == 7456 || c == 11185 || c == 18640 {
 			apu.runEnvCycle()
+			apu.Triangle.runTriangleLengthCycle()
 		}
 		if c == 7456 || c == 18640 {
 			apu.runLengthCycle()
@@ -109,19 +111,19 @@ func (apu *apu) runCycle(cs *cpuState) {
 
 		left, right := 0.0, 0.0
 
-		left0, right0 := apu.Pulse1.getSample()
-		left1, right1 := apu.Pulse2.getSample()
-		// left2, right2 := apu.Triangle.getSample()
-		// left3, right3 := apu.DMC.getSample()
-		// left4, right4 := apu.Noise.getSample()
-		// left = (left0 + left1 + left2 + left3 + left4) * 0.2
-		// right = (right0 + right1 + right2 + right3 + right4) * 0.2
+		p1 := apu.Pulse1.getSample()
+		p2 := apu.Pulse2.getSample()
+		tri := apu.Triangle.getSample()
 
-		left = (left0 + left1) * 0.5
-		right = (right0 + right1) * 0.5
+		dmc := apu.DMC.getSample()
+		noise := apu.Noise.getSample()
 
-		left = left*2.0 - 1.0
-		right = right*2.0 - 1.0
+		pSamples := 95.88 / ((8128 / (p1 + p2)) + 100)
+		tdnSamples := 159.79 / ((1 / ((tri / 8227) + (noise / 12241) + (dmc / 22638))) + 100)
+
+		sample := pSamples + tdnSamples
+
+		left, right = sample, sample
 
 		sampleL, sampleR := int16(left*32767.0), int16(right*32767.0)
 		apu.buffer.write([]byte{
@@ -168,6 +170,7 @@ func (sound *sound) updateFreq() {
 	case dmcSoundType:
 	case noiseSoundType:
 	case triangleSoundType:
+		sound.Freq = 1789773.0 / (32.0 * float64(sound.PeriodTimer+1))
 	case squareSoundType:
 		sound.Freq = 1789773.0 / (16.0 * float64(sound.PeriodTimer+1))
 	default:
@@ -190,16 +193,26 @@ func (sound *sound) inDutyCycle() bool {
 	}
 }
 
-func (sound *sound) getSample() (float64, float64) {
+var triangleSampleTable = []byte{
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+	15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
+}
+
+func (sound *sound) getTriangleSample() byte {
+	val := triangleSampleTable[int(sound.T*32)]
+	return val
+}
+
+func (sound *sound) getSample() float64 {
 	sample := 0.0
 	if sound.On {
-		sound.runFreqCycle()
 		switch sound.SoundType {
 		case squareSoundType:
-			vol := float64(sound.getCurrentVolume()) / 15.0
+			vol := float64(sound.getCurrentVolume())
 			if vol > 0 {
 				if sound.LengthCounter > 0 {
 					if sound.PeriodTimer >= 8 {
+						sound.runFreqCycle()
 						if sound.inDutyCycle() {
 							sample = vol
 						} else {
@@ -209,13 +222,16 @@ func (sound *sound) getSample() (float64, float64) {
 				}
 			}
 		case triangleSoundType:
+			audible := sound.PeriodTimer >= 2 // not accurate, but eliminates annoying clicks
+			if audible && sound.LengthCounter > 0 && sound.TriangleLinearCounter > 0 {
+				sound.runFreqCycle()
+				sample = float64(sound.getTriangleSample())
+			}
 		case dmcSoundType:
 		case noiseSoundType:
 		}
 	}
-
-	left, right := sample, sample
-	return left, right
+	return sample
 }
 
 type sound struct {
@@ -236,6 +252,8 @@ type sound struct {
 
 	TriangleLinearCounter            byte
 	TriangleLinearCounterControlFlag bool
+	TriangleLinearCounterReloadValue byte
+	TriangleLinearCounterReloadFlag  bool
 
 	DMCSampleLength       uint16
 	DMCSampleAddr         uint16
@@ -300,6 +318,17 @@ func (sound *sound) runLengthCycle() {
 	}
 }
 
+func (sound *sound) runTriangleLengthCycle() {
+	if sound.TriangleLinearCounterReloadFlag {
+		sound.TriangleLinearCounter = sound.TriangleLinearCounterReloadValue
+	} else if sound.TriangleLinearCounter > 0 {
+		sound.TriangleLinearCounter--
+	}
+	if !sound.TriangleLinearCounterControlFlag {
+		sound.TriangleLinearCounterReloadFlag = false
+	}
+}
+
 func (sound *sound) runEnvCycle() {
 	if sound.VolumeRestart {
 		sound.VolumeRestart = false
@@ -316,14 +345,15 @@ func (sound *sound) runEnvCycle() {
 		} else {
 			sound.VolumeDecayCounter--
 		}
+	} else {
+		sound.VolumeDivider--
 	}
-	sound.VolumeDivider--
 }
 
 func (sound *sound) writeLinearCounterReg(val byte) {
 	sound.TriangleLinearCounterControlFlag = val&0x80 == 0x80
 	sound.LengthCounterHalt = sound.TriangleLinearCounterControlFlag
-	sound.TriangleLinearCounter = val & 0x7f
+	sound.TriangleLinearCounterReloadValue = val & 0x7f
 }
 
 func (sound *sound) writePeriodLowReg(val byte) {
@@ -337,7 +367,11 @@ func (sound *sound) writePeriodHighTimerReg(val byte) {
 	sound.PeriodTimer |= (uint16(val) & 0x07) << 8
 	sound.loadLengthCounter(val >> 3)
 	sound.VolumeRestart = true
+	sound.TriangleLinearCounterReloadFlag = true
+	// if sound.SoundType == squareSoundType {
+	// inaccurate, but do this for triangle too as it removes a lot of clicks...
 	sound.T = 0 // nesdev wiki: "sequencer is restarted"
+	// }
 	sound.updateFreq()
 }
 
@@ -407,7 +441,7 @@ func (apu *apu) readStatusReg() byte {
 		true,
 		apu.DMC.DMCSampleLength > 0, // NOTE: make sure this means "DMC active"
 		apu.Noise.LengthCounter > 0,
-		apu.Triangle.LengthCounter > 0,
+		apu.Triangle.LengthCounter > 0 || apu.Triangle.TriangleLinearCounter > 0,
 		apu.Pulse2.LengthCounter > 0,
 		apu.Pulse1.LengthCounter > 0,
 	)

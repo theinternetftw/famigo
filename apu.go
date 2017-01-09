@@ -79,6 +79,9 @@ func (apu *apu) runCycle(cs *cpuState) {
 		if c == 3728 || c == 7456 || c == 11185 || c == 14914 {
 			apu.runEnvCycle()
 		}
+		if c == 7456 || c == 14914 {
+			apu.runLengthCycle()
+		}
 		if c == 14914 {
 			if !apu.FrameCounterInterruptInhibit {
 				apu.FrameInterruptRequested = true
@@ -92,6 +95,9 @@ func (apu *apu) runCycle(cs *cpuState) {
 		c := apu.FrameCounter
 		if c == 3728 || c == 7456 || c == 11185 || c == 18640 {
 			apu.runEnvCycle()
+		}
+		if c == 7456 || c == 18640 {
+			apu.runLengthCycle()
 		}
 		if c == 18641 {
 			apu.FrameCounter = 0
@@ -141,6 +147,13 @@ func (apu *apu) runEnvCycle() {
 	apu.Noise.runEnvCycle()
 }
 
+func (apu *apu) runLengthCycle() {
+	apu.Pulse1.runLengthCycle()
+	apu.Pulse2.runLengthCycle()
+	apu.Triangle.runLengthCycle()
+	apu.Noise.runLengthCycle()
+}
+
 func (sound *sound) runFreqCycle() {
 
 	sound.T += sound.Freq * timePerSample
@@ -184,11 +197,15 @@ func (sound *sound) getSample() (float64, float64) {
 		switch sound.SoundType {
 		case squareSoundType:
 			vol := float64(sound.getCurrentVolume()) / 15.0
-			if sound.PeriodTimer >= 8 && vol > 0 {
-				if sound.inDutyCycle() {
-					sample = vol
-				} else {
-					sample = 0.0
+			if vol > 0 {
+				if sound.LengthCounter > 0 {
+					if sound.PeriodTimer >= 8 {
+						if sound.inDutyCycle() {
+							sample = vol
+						} else {
+							sample = 0.0
+						}
+					}
 				}
 			}
 		case triangleSoundType:
@@ -243,11 +260,44 @@ type sound struct {
 	LengthCounterHalt bool
 }
 
+var lengthCounterTable = []byte{
+	10, 254,
+	20, 2,
+	40, 4,
+	80, 6,
+	160, 8,
+	60, 10,
+	14, 12,
+	26, 14,
+	12, 16,
+	24, 18,
+	48, 20,
+	96, 22,
+	192, 24,
+	72, 26,
+	16, 28,
+	32, 30,
+}
+
+func (sound *sound) loadLengthCounter(regVal byte) {
+	if sound.On {
+		sound.LengthCounter = lengthCounterTable[regVal] + 1
+	}
+}
+
 func (sound *sound) getCurrentVolume() byte {
 	if sound.UsesConstantVolume {
 		return sound.InitialVolume
 	}
 	return sound.VolumeDecayCounter
+}
+
+func (sound *sound) runLengthCycle() {
+	if !sound.LengthCounterHalt {
+		if sound.LengthCounter > 0 {
+			sound.LengthCounter--
+		}
+	}
 }
 
 func (sound *sound) runEnvCycle() {
@@ -272,6 +322,7 @@ func (sound *sound) runEnvCycle() {
 
 func (sound *sound) writeLinearCounterReg(val byte) {
 	sound.TriangleLinearCounterControlFlag = val&0x80 == 0x80
+	sound.LengthCounterHalt = sound.TriangleLinearCounterControlFlag
 	sound.TriangleLinearCounter = val & 0x7f
 }
 
@@ -284,7 +335,7 @@ func (sound *sound) writePeriodLowReg(val byte) {
 func (sound *sound) writePeriodHighTimerReg(val byte) {
 	sound.PeriodTimer &^= 0x0700
 	sound.PeriodTimer |= (uint16(val) & 0x07) << 8
-	sound.LengthCounter = val >> 3
+	sound.loadLengthCounter(val >> 3)
 	sound.VolumeRestart = true
 	sound.T = 0 // nesdev wiki: "sequencer is restarted"
 	sound.updateFreq()
@@ -330,7 +381,7 @@ func (sound *sound) writeDMCFlagsAndRate(val byte) {
 }
 
 func (sound *sound) writeNoiseLength(val byte) {
-	sound.LengthCounter = val >> 3
+	sound.loadLengthCounter(val >> 3)
 }
 
 func (sound *sound) writeNoiseControlReg(val byte) {

@@ -305,7 +305,8 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 
 				r, g, b := byte(0), byte(0), byte(0)
 				bgPattern := byte(0)
-				if ppu.ShowBG {
+
+				if ppu.ShowBG && (ppu.LineX >= 8 || ppu.ShowBGInLeftBorder) {
 					x, y := ppu.getBGX(), ppu.getBGY()
 					tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
 					patternAddr := ppu.getBGPatternAddr(tileID)
@@ -360,11 +361,13 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 								ppu.SpriteZeroHit = true
 							}
 							if ppu.ShowSprites && (!entry.BehindBG || bgPattern == 0) {
-								colorAddr := 0x10 | (entry.PaletteID << 2) | pattern
-								color := ppu.PaletteRAM[colorAddr] & 0x3f
-								r = defaultPalette[color*3]
-								g = defaultPalette[color*3+1]
-								b = defaultPalette[color*3+2]
+								if ppu.LineX >= 8 || ppu.ShowSpritesInLeftBorder {
+									colorAddr := 0x10 | (entry.PaletteID << 2) | pattern
+									color := ppu.PaletteRAM[colorAddr] & 0x3f
+									r = defaultPalette[color*3]
+									g = defaultPalette[color*3+1]
+									b = defaultPalette[color*3+2]
+								}
 							}
 						}
 					}

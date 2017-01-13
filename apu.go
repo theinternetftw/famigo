@@ -392,8 +392,9 @@ func (sound *sound) writeSweepReg(val byte) {
 }
 
 func (apu *apu) writeFrameCounterReg(val byte) {
-	apu.FrameCounterInterruptInhibit = val&0x40 != 0
+	apu.FrameCounterInterruptInhibit = val&0x40 == 0x40
 	apu.FrameCounterSequencerMode = val >> 7
+	apu.FrameCounter = 0
 }
 
 func (sound *sound) writeDMCSampleLength(val byte) {

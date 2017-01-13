@@ -34,6 +34,7 @@ type ppu struct {
 	ScrollX           byte
 	ScrollY           byte
 	RequestedScrollY  byte
+	RequestedScrollX  byte
 	ScrollRegSelector byte
 
 	AddrReg         uint16
@@ -179,7 +180,7 @@ func (ppu *ppu) readAddrReg() byte {
 
 func (ppu *ppu) writeScrollReg(val byte) {
 	if ppu.ScrollRegSelector == 0 {
-		ppu.ScrollX = val
+		ppu.RequestedScrollX = val
 		ppu.ScrollRegSelector = 1
 	} else {
 		ppu.RequestedScrollY = val
@@ -398,6 +399,9 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 				ppu.LineX++
 			}
 		}
+
+	case ppu.PPUCyclesSinceYInc == 257:
+		ppu.ScrollX = ppu.RequestedScrollX
 
 	case ppu.PPUCyclesSinceYInc == 340:
 		ppu.PPUCyclesSinceYInc = 0

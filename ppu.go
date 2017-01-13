@@ -40,6 +40,8 @@ type ppu struct {
 	AddrReg         uint16
 	AddrRegSelector byte
 
+	DataReadBuffer byte
+
 	OAM            [256]byte
 	OAMBeingParsed []oamEntry
 	OAMForScanline []oamEntry
@@ -143,12 +145,16 @@ func (ppu *ppu) readDataReg(mem *mem) byte {
 	var val byte
 	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x4000 {
 		addr := getPaletteRAMAddr(ppu.AddrReg)
+		// palette data is returned, but data buffer is updated to nametable values
+		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, ppu.AddrReg&0x2fff)
 		val = ppu.PaletteRAM[addr]
 	} else if ppu.AddrReg >= 0x2000 && ppu.AddrReg < 0x3f00 {
 		addr := ppu.AddrReg & 0x2fff
-		val = mem.MMC.ReadVRAM(mem, addr)
+		val = ppu.DataReadBuffer
+		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, addr)
 	} else {
-		val = mem.MMC.ReadVRAM(mem, ppu.AddrReg)
+		val = ppu.DataReadBuffer
+		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, ppu.AddrReg)
 	}
 	if ppu.IncrementStyleSelector == incrementBigStride {
 		ppu.AddrReg += 0x20

@@ -337,7 +337,7 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 					bgPattern = ppu.getPattern(cs, patternAddr, x, y)
 					var color byte
 					if bgPattern == 0 {
-						color = ppu.getBackgroundColor()
+						color = ppu.getBackgroundColor() & 0x3f
 					} else {
 						attributeByte := ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
 						paletteID := ppu.getPaletteIDFromAttributeByte(attributeByte, x, y)

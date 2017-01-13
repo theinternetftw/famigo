@@ -202,7 +202,11 @@ func newState(romBytes []byte) *cpuState {
 		},
 		RESET: true,
 	}
+	if cartInfo.IsChrRAM() {
+		cs.Mem.ChrROM = make([]byte, cartInfo.GetRAMSizeChr())
+	}
 
+	cs.Mem.MMC.Init(&cs.Mem)
 	cs.APU.init()
 
 	return &cs

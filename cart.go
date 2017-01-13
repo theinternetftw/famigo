@@ -63,6 +63,13 @@ const (
 	VerticalMirroring
 	// FourScreenVRAM needs docs
 	FourScreenVRAM
+
+	// only for MMCs:
+
+	// OneScreenLowerMirroring needs docs
+	OneScreenLowerMirroring
+	// OneScreenUpperMirroring needs docs
+	OneScreenUpperMirroring
 )
 
 // GetMirrorInfo needs docs
@@ -109,10 +116,32 @@ func (cart *CartInfo) GetROMSizeChr() int {
 	return int(cart.ChrROMSizeCode) * 8 * 1024
 }
 
+// IsChrRAM needs docs
+func (cart *CartInfo) IsChrRAM() bool {
+	if cart.IsNES2 {
+		panic("must be updated for nes2.0")
+	}
+	return cart.ChrROMSizeCode == 0
+}
+
+// GetRAMSizeChr needs docs
+func (cart *CartInfo) GetRAMSizeChr() int {
+	if cart.IsNES2 {
+		panic("must be updated for nes2.0")
+	}
+	if cart.IsChrRAM() {
+		return 8 * 1024
+	}
+	return 0
+}
+
 // GetRAMSizePrg needs docs
 func (cart *CartInfo) GetRAMSizePrg() int {
 	if cart.IsNES2 {
 		panic("must be updated for nes2.0")
+	}
+	if int(cart.PrgRAMSizeCode) == 0 {
+		return 8 * 1024
 	}
 	return int(cart.PrgRAMSizeCode) * 8 * 1024
 }

@@ -24,6 +24,7 @@ const (
 
 func (apu *apu) init() {
 	apu.Pulse1.SoundType = squareSoundType
+	apu.Pulse1.SweepUsesOnesComplement = true
 	apu.Pulse2.SoundType = squareSoundType
 	apu.Triangle.SoundType = triangleSoundType
 	apu.DMC.SoundType = dmcSoundType
@@ -82,6 +83,7 @@ func (apu *apu) runCycle(cs *cpuState) {
 		}
 		if c == 7456 || c == 14914 {
 			apu.runLengthCycle()
+			apu.runSweepCycle()
 		}
 		if c == 14914 {
 			if !apu.FrameCounterInterruptInhibit {
@@ -100,6 +102,7 @@ func (apu *apu) runCycle(cs *cpuState) {
 		}
 		if c == 7456 || c == 18640 {
 			apu.runLengthCycle()
+			apu.runSweepCycle()
 		}
 		if c == 18641 {
 			apu.FrameCounter = 0
@@ -149,6 +152,11 @@ func (apu *apu) runEnvCycle() {
 	apu.Noise.runEnvCycle()
 }
 
+func (apu *apu) runSweepCycle() {
+	apu.Pulse1.runSweepCycle()
+	apu.Pulse2.runSweepCycle()
+}
+
 func (apu *apu) runLengthCycle() {
 	apu.Pulse1.runLengthCycle()
 	apu.Pulse2.runLengthCycle()
@@ -173,6 +181,7 @@ func (sound *sound) updateFreq() {
 		sound.Freq = 1789773.0 / (32.0 * float64(sound.PeriodTimer+1))
 	case squareSoundType:
 		sound.Freq = 1789773.0 / (16.0 * float64(sound.PeriodTimer+1))
+		sound.updateSweepTargetPeriod()
 	default:
 		panic("unexpected sound type")
 	}
@@ -211,12 +220,14 @@ func (sound *sound) getSample() float64 {
 			vol := float64(sound.getCurrentVolume())
 			if vol > 0 {
 				if sound.LengthCounter > 0 {
-					if sound.PeriodTimer >= 8 {
-						sound.runFreqCycle()
-						if sound.inDutyCycle() {
-							sample = vol
-						} else {
-							sample = 0.0
+					if !sound.sweepTargetTooHigh() { // a high sweep target mutes even if sweep is disabled
+						if sound.PeriodTimer >= 8 { // some freqs are off-limits to square channels due to 100s-of-khz harmonics
+							sound.runFreqCycle()
+							if sound.inDutyCycle() {
+								sample = vol
+							} else {
+								sample = 0.0
+							}
 						}
 					}
 				}
@@ -243,12 +254,15 @@ type sound struct {
 	Freq float64
 
 	// square waves only
-	DutyCycleSelector byte
-	SweepEnable       bool
-	SweepNegate       bool
-	SweepReload       bool
-	SweepDivider      byte
-	SweepShift        byte
+	DutyCycleSelector       byte
+	SweepEnable             bool
+	SweepNegate             bool
+	SweepReload             bool
+	SweepDivider            byte
+	SweepCounter            byte
+	SweepShift              byte
+	SweepTargetPeriod       uint16
+	SweepUsesOnesComplement bool // hard-wired to pulse1
 
 	TriangleLinearCounter            byte
 	TriangleLinearCounterControlFlag bool
@@ -316,6 +330,38 @@ func (sound *sound) runLengthCycle() {
 			sound.LengthCounter--
 		}
 	}
+}
+
+func (sound *sound) runSweepCycle() {
+	if sound.SweepReload {
+		sound.SweepCounter = sound.SweepDivider
+		sound.SweepReload = false
+	}
+	if sound.SweepCounter > 0 {
+		sound.SweepCounter--
+	} else {
+		sound.SweepCounter = sound.SweepDivider
+		if sound.SweepEnable && !sound.sweepTargetTooHigh() {
+			sound.PeriodTimer = sound.SweepTargetPeriod
+			sound.updateFreq()
+		}
+	}
+}
+
+func (sound *sound) sweepTargetTooHigh() bool {
+	return sound.SweepTargetPeriod > 0x7ff
+}
+
+func (sound *sound) updateSweepTargetPeriod() {
+	periodDelta := int(sound.PeriodTimer >> sound.SweepShift)
+	if sound.SweepNegate {
+		if sound.SweepUsesOnesComplement {
+			periodDelta = -periodDelta - 1
+		} else {
+			periodDelta = -periodDelta
+		}
+	}
+	sound.SweepTargetPeriod = uint16(int(sound.PeriodTimer) + periodDelta)
 }
 
 func (sound *sound) runTriangleLengthCycle() {
@@ -394,7 +440,10 @@ func (sound *sound) writeSweepReg(val byte) {
 func (apu *apu) writeFrameCounterReg(val byte) {
 	apu.FrameCounterInterruptInhibit = val&0x40 == 0x40
 	apu.FrameCounterSequencerMode = val >> 7
-	apu.FrameCounter = 0
+	// NOTE: frame counter should be reset here, but until
+	// we have more accurate timing, it makes sweeps sound
+	// weird on games (e.g. smbros) that write to this reg
+	// for sync
 }
 
 func (sound *sound) writeDMCSampleLength(val byte) {

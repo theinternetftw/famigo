@@ -9,7 +9,13 @@ type ppu struct {
 	UseUpperBGPatternTable     bool
 	UseUpperSpritePatternTable bool
 	IncrementStyleSelector     bool
-	NametableBaseSelector      byte
+
+	TempAddrReg uint16 // handles scroll, nametables... see ppu docs
+	AddrReg     uint16
+	FineScrollX byte
+
+	AddrRegSelector byte
+	DataReadBuffer  byte
 
 	InVBlank       bool
 	VBlankAlert    bool
@@ -30,17 +36,6 @@ type ppu struct {
 	ShowSpritesInLeftBorder bool
 	ShowBGInLeftBorder      bool
 	UseGreyscale            bool
-
-	ScrollX          byte
-	ScrollY          byte
-	RequestedScrollY byte
-	RequestedScrollX byte
-
-	DualRegSelector byte
-
-	AddrReg uint16
-
-	DataReadBuffer byte
 
 	OAM            [256]byte
 	OAMBeingParsed []oamEntry
@@ -124,60 +119,60 @@ func getPaletteRAMAddr(addr uint16) uint16 {
 }
 
 func (ppu *ppu) writeDataReg(mem *mem, val byte) {
-	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x4000 {
-		addr := getPaletteRAMAddr(ppu.AddrReg)
+
+	addr := ppu.AddrReg & 0x3fff // NOTE: make sure this mask isn't hiding bugs!
+	if addr >= 0x3f00 && addr < 0x4000 {
+		addr = getPaletteRAMAddr(addr)
 		ppu.PaletteRAM[addr] = val
-	} else if ppu.AddrReg >= 0x2000 && ppu.AddrReg < 0x3f00 {
-		addr := ppu.AddrReg & 0x2fff
+	} else if addr >= 0x2000 && addr < 0x3f00 {
+		addr = addr & 0x2fff
 		mem.MMC.WriteVRAM(mem, addr, val)
 	} else {
-		mem.MMC.WriteVRAM(mem, ppu.AddrReg, val)
+		mem.MMC.WriteVRAM(mem, addr, val)
 	}
 	if ppu.IncrementStyleSelector == incrementBigStride {
 		ppu.AddrReg += 0x20
 	} else {
 		ppu.AddrReg++
 	}
-	ppu.AddrReg &= 0x3fff
+	ppu.AddrReg &= 0x7fff // only a 15 bit reg
 }
 
 func (ppu *ppu) readDataReg(mem *mem) byte {
 	var val byte
-	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x4000 {
-		addr := getPaletteRAMAddr(ppu.AddrReg)
+	addr := ppu.AddrReg & 0x3fff // NOTE: make sure this mask isn't hiding bugs!
+	if addr >= 0x3f00 && addr < 0x4000 {
+		addr = getPaletteRAMAddr(addr)
 		// palette data is returned, but data buffer is updated to nametable values
-		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, ppu.AddrReg&0x2fff)
+		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, addr&0x2fff)
 		val = ppu.PaletteRAM[addr]
-	} else if ppu.AddrReg >= 0x2000 && ppu.AddrReg < 0x3f00 {
-		addr := ppu.AddrReg & 0x2fff
+	} else if addr >= 0x2000 && addr < 0x3f00 {
+		addr = addr & 0x2fff
 		val = ppu.DataReadBuffer
 		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, addr)
 	} else {
 		val = ppu.DataReadBuffer
-		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, ppu.AddrReg)
+		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, addr)
 	}
 	if ppu.IncrementStyleSelector == incrementBigStride {
 		ppu.AddrReg += 0x20
 	} else {
 		ppu.AddrReg++
 	}
-	ppu.AddrReg &= 0x3fff
+	ppu.AddrReg &= 0x7fff // only a 15 bit reg
 	return val
 }
 
 func (ppu *ppu) writeAddrReg(val byte) {
-	if ppu.DualRegSelector == 0 {
-		ppu.AddrReg &^= 0xff00
-		ppu.AddrReg |= uint16(val) << 8
-		// NOTE: take this and out if
-		// nobody really uses this and
-		// it's just hiding bugs...
-		ppu.AddrReg &= 0x3fff
-		ppu.DualRegSelector = 1
+	if ppu.AddrRegSelector == 0 {
+		ppu.TempAddrReg &^= 0xff00
+		ppu.TempAddrReg |= uint16(val&0x3f) << 8 // yes 3, we clear the top scroll bit for some reason, here
+		ppu.AddrRegSelector = 1
 	} else {
-		ppu.AddrReg &^= 0x00ff
-		ppu.AddrReg |= uint16(val)
-		ppu.DualRegSelector = 0
+		ppu.TempAddrReg &^= 0x00ff
+		ppu.TempAddrReg |= uint16(val)
+		ppu.AddrReg = ppu.TempAddrReg
+		ppu.AddrRegSelector = 0
 	}
 }
 func (ppu *ppu) readAddrReg() byte {
@@ -185,12 +180,17 @@ func (ppu *ppu) readAddrReg() byte {
 }
 
 func (ppu *ppu) writeScrollReg(val byte) {
-	if ppu.DualRegSelector == 0 {
-		ppu.RequestedScrollX = val
-		ppu.DualRegSelector = 1
+	if ppu.AddrRegSelector == 0 {
+		ppu.TempAddrReg &^= 0x1f
+		ppu.TempAddrReg |= uint16(val >> 3)
+		ppu.FineScrollX = val & 0x07
+		ppu.AddrRegSelector = 1
 	} else {
-		ppu.RequestedScrollY = val
-		ppu.DualRegSelector = 0
+		ppu.TempAddrReg &^= 0x03e0
+		ppu.TempAddrReg |= uint16(val>>3) << 5
+		ppu.TempAddrReg &^= 0x7000
+		ppu.TempAddrReg |= uint16(val&0x07) << 12
+		ppu.AddrRegSelector = 0
 	}
 }
 func (ppu *ppu) readScrollReg() byte {
@@ -221,29 +221,13 @@ const (
 	masterSlavePPUWrites = true
 )
 
-func (ppu *ppu) getNametableBase() uint16 {
-	return 0x2000 + 0x400*uint16(ppu.NametableBaseSelector)
-}
 func (ppu *ppu) getCurrentNametableTileAddr() uint16 {
-	addr := ppu.getNametableBase() +
-		uint16(ppu.getBGY()>>3)*32 + uint16(ppu.getBGX()>>3)
-	if ppu.LineY+int(ppu.ScrollY) > 0xff {
-		addr ^= 0x800
-	}
-	if ppu.LineX+int(ppu.ScrollX) > 0xff {
-		addr ^= 0x400
-	}
-	return addr
+	return 0x2000 | ppu.AddrReg&0x0fff // 0x2000 | nametableSel | coarseY | coarseX
 }
 func (ppu *ppu) getCurrentNametableAttributeAddr() uint16 {
-	addr := ppu.getNametableBase() + (0x400 - 64) +
-		uint16(ppu.getBGY()>>5)*8 + uint16(ppu.getBGX()>>5)
-	if ppu.LineY+int(ppu.ScrollY) > 0xff {
-		addr ^= 0x800
-	}
-	if ppu.LineX+int(ppu.ScrollX) > 0xff {
-		addr ^= 0x400
-	}
+	addr := 0x23c0 | (ppu.AddrReg & 0x0c00)
+	addr |= ((ppu.AddrReg >> 5 >> 2) & 0x07) << 3 // high 3 bits of coarse y
+	addr |= (ppu.AddrReg >> 2) & 0x07             // high 3 bits of coarse x
 	return addr
 }
 func (ppu *ppu) getBGPatternAddr(tileID byte) uint16 {
@@ -253,9 +237,6 @@ func (ppu *ppu) getBGPatternAddr(tileID byte) uint16 {
 	}
 	return addr
 }
-
-func (ppu *ppu) getBGX() byte { return byte(ppu.LineX) + ppu.ScrollX }
-func (ppu *ppu) getBGY() byte { return byte(ppu.LineY) + ppu.ScrollY }
 
 func (ppu *ppu) getPattern(cs *cpuState, patternAddr uint16, x, y byte) byte {
 	patternAddr += uint16(y & 0x07)
@@ -289,9 +270,9 @@ func (ppu *ppu) getRGB(nesColor byte) (byte, byte, byte) {
 		defaultPalette[emphasisSelector*64*3+ntscPalIndex*3+2]
 }
 
-func (ppu *ppu) getPaletteIDFromAttributeByte(attributes byte, x, y byte) byte {
-	attrX := (x >> 4) & 0x01
-	attrY := (y >> 4) & 0x01
+func (ppu *ppu) getPaletteIDFromAttributeByte(attributes byte, tileX, tileY byte) byte {
+	attrX := (tileX >> 1) & 0x01
+	attrY := (tileY >> 1) & 0x01
 	return (attributes >> (attrX * 2) >> (attrY * 4)) & 0x03
 }
 
@@ -304,9 +285,50 @@ func (ppu *ppu) getBackgroundColor() byte {
 	return ppu.PaletteRAM[0]
 }
 
+func (ppu *ppu) copyVerticalScrollBits() {
+	ppu.AddrReg &^= 0xfbe0 // x1111.11111..... (x == dont care)
+	ppu.AddrReg |= ppu.TempAddrReg & 0xfbe0
+}
+func (ppu *ppu) copyHorizontalScrollBits() {
+	ppu.AddrReg &^= 0x041f // x....1.....11111 (x == dont care)
+	ppu.AddrReg |= ppu.TempAddrReg & 0x041f
+}
+func (ppu *ppu) incrementVerticalScrollBits() {
+	if ppu.AddrReg&0x7000 != 0x7000 {
+		ppu.AddrReg += 0x1000
+	} else {
+		ppu.AddrReg &^= 0x7000
+		tileY := (ppu.AddrReg & 0x03e0) >> 5
+		switch tileY {
+		case 29:
+			ppu.AddrReg ^= 0x0800 // nametable swap
+			tileY = 0
+		case 31:
+			tileY = 0
+		default:
+			tileY++
+		}
+		ppu.AddrReg &^= 0x03e0
+		ppu.AddrReg |= tileY << 5
+	}
+}
+func (ppu *ppu) incrementHorizontalScrollBits() {
+	if ppu.AddrReg&0x001f == 0x001f {
+		ppu.AddrReg &^= 0x001f
+		ppu.AddrReg ^= 0x0400 // nametable swap
+	} else {
+		ppu.AddrReg++
+	}
+}
+func (ppu *ppu) getBGTileX() byte     { return byte(ppu.AddrReg) & 0x1f }
+func (ppu *ppu) getBGTileY() byte     { return byte(ppu.AddrReg>>5) & 0x1f }
+func (ppu *ppu) getFineScrollY() byte { return byte(ppu.AddrReg>>12) & 0x07 }
+
+// FIXME: temp hack due to timing issues (games settings fineX before we're ready)
+var fineScrollXCopy byte
+
 func (ppu *ppu) runCycle(cs *cpuState) {
-	switch {
-	case ppu.PPUCyclesSinceYInc == 1:
+	if ppu.PPUCyclesSinceYInc == 1 {
 		if ppu.LineY == 241 {
 			ppu.InVBlank = true
 			ppu.VBlankAlert = true
@@ -315,35 +337,34 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 				cs.NMI = true
 			}
 		} else if ppu.LineY == -1 {
-			ppu.ScrollY = ppu.RequestedScrollY
 			ppu.SpriteZeroHit = false
 		} else if ppu.LineY >= 0 && ppu.LineY < 240 {
 			ppu.OAMForScanline = ppu.OAMForScanline[:0]
 			ppu.OAMForScanline = append(ppu.OAMForScanline, ppu.OAMBeingParsed...)
 			ppu.parseOAM()
 		}
+	}
 
-	case ppu.PPUCyclesSinceYInc >= 1 && ppu.PPUCyclesSinceYInc <= 256:
+	if ppu.PPUCyclesSinceYInc >= 1 && ppu.PPUCyclesSinceYInc <= 256 {
 		if ppu.LineY >= 0 && ppu.LineY < 240 && ppu.PPUCyclesSinceYInc&0x07 == 0 {
 			for i := 0; i < 8; i++ {
 
 				r, g, b := byte(0), byte(0), byte(0)
 				bgPattern := byte(0)
 
+				tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
+				patternAddr := ppu.getBGPatternAddr(tileID)
+				bgPattern = ppu.getPattern(cs, patternAddr, byte(ppu.LineX)+fineScrollXCopy, ppu.getFineScrollY())
+				var color byte
+				if bgPattern == 0 {
+					color = ppu.getBackgroundColor() & 0x3f
+				} else {
+					attributeByte := ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
+					paletteID := ppu.getPaletteIDFromAttributeByte(attributeByte, ppu.getBGTileX(), ppu.getBGTileY())
+					colorAddr := (paletteID << 2) | bgPattern
+					color = ppu.PaletteRAM[colorAddr] & 0x3f
+				}
 				if ppu.ShowBG && (ppu.LineX >= 8 || ppu.ShowBGInLeftBorder) {
-					x, y := ppu.getBGX(), ppu.getBGY()
-					tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
-					patternAddr := ppu.getBGPatternAddr(tileID)
-					bgPattern = ppu.getPattern(cs, patternAddr, x, y)
-					var color byte
-					if bgPattern == 0 {
-						color = ppu.getBackgroundColor() & 0x3f
-					} else {
-						attributeByte := ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
-						paletteID := ppu.getPaletteIDFromAttributeByte(attributeByte, x, y)
-						colorAddr := (paletteID << 2) | bgPattern
-						color = ppu.PaletteRAM[colorAddr] & 0x3f
-					}
 					r, g, b = ppu.getRGB(color)
 				}
 
@@ -407,13 +428,39 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+3] = 0xff
 
 				ppu.LineX++
+				if (byte(ppu.LineX)+fineScrollXCopy)&0x07 == 0 {
+					if ppu.ShowBG || ppu.ShowSprites {
+						ppu.incrementHorizontalScrollBits()
+					}
+				}
 			}
 		}
 
-	case ppu.PPUCyclesSinceYInc == 257:
-		ppu.ScrollX = ppu.RequestedScrollX
+		if ppu.PPUCyclesSinceYInc == 256 {
+			if ppu.ShowBG || ppu.ShowSprites {
+				ppu.incrementVerticalScrollBits()
+			}
+		}
+	}
 
-	case ppu.PPUCyclesSinceYInc == 340:
+	if ppu.ShowBG || ppu.ShowSprites {
+		if ppu.PPUCyclesSinceYInc == 257 {
+			ppu.copyHorizontalScrollBits()
+			fineScrollXCopy = ppu.FineScrollX
+		}
+		// NOTE: seems and acts wrong, but is perscribed in nesdev wiki
+		// if ppu.PPUCyclesSinceYInc == 328 || ppu.PPUCyclesSinceYInc == 336 {
+		// 	ppu.incrementHorizontalScrollBits()
+		// }
+	}
+
+	if ppu.PPUCyclesSinceYInc == 340 {
+		if ppu.LineY == -1 {
+			// NOTE: technically, happens from cycles 280-304
+			if ppu.ShowBG || ppu.ShowSprites {
+				ppu.copyVerticalScrollBits()
+			}
+		}
 		ppu.PPUCyclesSinceYInc = 0
 		ppu.LineX = 0
 		ppu.LineY++
@@ -427,6 +474,11 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 	ppu.PPUCyclesSinceYInc++
 }
 
+func (ppu *ppu) setNametableSelector(val byte) {
+	ppu.TempAddrReg &^= 0x0c00
+	ppu.TempAddrReg |= uint16(val&0x03) << 10
+}
+
 func (ppu *ppu) writeControlReg(val byte) {
 	boolsFromByte(val,
 		&ppu.GenerateVBlankNMIs,
@@ -437,7 +489,7 @@ func (ppu *ppu) writeControlReg(val byte) {
 		&ppu.IncrementStyleSelector,
 		nil, nil,
 	)
-	ppu.NametableBaseSelector = val & 0x03
+	ppu.setNametableSelector(val & 0x03)
 	ppu.SharedReg = val
 }
 func (ppu *ppu) readControlReg() byte { return 0xff } // write only
@@ -451,6 +503,6 @@ func (ppu *ppu) readStatusReg() byte {
 		false, false, false, false, false,
 	)
 	ppu.VBlankAlert = false
-	ppu.DualRegSelector = 0
+	ppu.AddrRegSelector = 0
 	return result | (ppu.SharedReg & 0x1f)
 }

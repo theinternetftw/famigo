@@ -112,9 +112,17 @@ func (ppu *ppu) readOAMAddrReg() byte {
 	return 0xff // write-only
 }
 
+func getPaletteRAMAddr(addr uint16) uint16 {
+	switch addr {
+	case 0x3f10, 0x3f14, 0x3f18, 0x3f1c:
+		return (addr - 0x3f00) & 0x0f
+	}
+	return (addr - 0x3f00) & 0x1f
+}
+
 func (ppu *ppu) writeDataReg(mem *mem, val byte) {
 	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x4000 {
-		addr := (ppu.AddrReg - 0x3f00) & 0x1f
+		addr := getPaletteRAMAddr(ppu.AddrReg)
 		ppu.PaletteRAM[addr] = val
 	} else if ppu.AddrReg >= 0x2000 && ppu.AddrReg < 0x3f00 {
 		addr := ppu.AddrReg & 0x2fff
@@ -133,7 +141,7 @@ func (ppu *ppu) writeDataReg(mem *mem, val byte) {
 func (ppu *ppu) readDataReg(mem *mem) byte {
 	var val byte
 	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x4000 {
-		addr := (ppu.AddrReg - 0x3f00) & 0x1f
+		addr := getPaletteRAMAddr(ppu.AddrReg)
 		val = ppu.PaletteRAM[addr]
 	} else if ppu.AddrReg >= 0x2000 && ppu.AddrReg < 0x3f00 {
 		addr := ppu.AddrReg & 0x2fff
@@ -280,6 +288,15 @@ func (ppu *ppu) getPaletteIDFromAttributeByte(attributes byte, x, y byte) byte {
 	return (attributes >> (attrX * 2) >> (attrY * 4)) & 0x03
 }
 
+func (ppu *ppu) getBackgroundColor() byte {
+	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x4000 {
+		// activate background color hack
+		return ppu.PaletteRAM[getPaletteRAMAddr(ppu.AddrReg)]
+	}
+	// otherwise we use the universal background color
+	return ppu.PaletteRAM[0]
+}
+
 func (ppu *ppu) runCycle(cs *cpuState) {
 	switch {
 	case ppu.PPUCyclesSinceYInc == 1:
@@ -313,7 +330,7 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 					bgPattern = ppu.getPattern(cs, patternAddr, x, y)
 					var color byte
 					if bgPattern == 0 {
-						color = ppu.PaletteRAM[0] // universal background color
+						color = ppu.getBackgroundColor()
 					} else {
 						attributeByte := ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
 						paletteID := ppu.getPaletteIDFromAttributeByte(attributeByte, x, y)

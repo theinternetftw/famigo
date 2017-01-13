@@ -381,8 +381,12 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 						patternAddr := patternTbl | (uint16(tileID) << 4)
 						pattern := ppu.getPattern(cs, patternAddr, spriteX, spriteY)
 						if pattern != 0 {
-							if entry.OAMIndex == 0 && bgPattern != 0 {
-								ppu.SpriteZeroHit = true
+							if entry.OAMIndex == 0 {
+								if ppu.ShowSprites && ppu.ShowBG && ppu.LineX != 255 {
+									if bgPattern != 0 {
+										ppu.SpriteZeroHit = true
+									}
+								}
 							}
 							if ppu.ShowSprites && (!entry.BehindBG || bgPattern == 0) {
 								if ppu.LineX >= 8 || ppu.ShowSpritesInLeftBorder {

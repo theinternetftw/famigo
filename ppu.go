@@ -31,14 +31,14 @@ type ppu struct {
 	ShowBGInLeftBorder      bool
 	UseGreyscale            bool
 
-	ScrollX           byte
-	ScrollY           byte
-	RequestedScrollY  byte
-	RequestedScrollX  byte
-	ScrollRegSelector byte
+	ScrollX          byte
+	ScrollY          byte
+	RequestedScrollY byte
+	RequestedScrollX byte
 
-	AddrReg         uint16
-	AddrRegSelector byte
+	DualRegSelector byte
+
+	AddrReg uint16
 
 	DataReadBuffer byte
 
@@ -166,18 +166,18 @@ func (ppu *ppu) readDataReg(mem *mem) byte {
 }
 
 func (ppu *ppu) writeAddrReg(val byte) {
-	if ppu.AddrRegSelector == 0 {
+	if ppu.DualRegSelector == 0 {
 		ppu.AddrReg &^= 0xff00
 		ppu.AddrReg |= uint16(val) << 8
 		// NOTE: take this and out if
 		// nobody really uses this and
 		// it's just hiding bugs...
 		ppu.AddrReg &= 0x3fff
-		ppu.AddrRegSelector = 1
+		ppu.DualRegSelector = 1
 	} else {
 		ppu.AddrReg &^= 0x00ff
 		ppu.AddrReg |= uint16(val)
-		ppu.AddrRegSelector = 0
+		ppu.DualRegSelector = 0
 	}
 }
 func (ppu *ppu) readAddrReg() byte {
@@ -185,12 +185,12 @@ func (ppu *ppu) readAddrReg() byte {
 }
 
 func (ppu *ppu) writeScrollReg(val byte) {
-	if ppu.ScrollRegSelector == 0 {
+	if ppu.DualRegSelector == 0 {
 		ppu.RequestedScrollX = val
-		ppu.ScrollRegSelector = 1
+		ppu.DualRegSelector = 1
 	} else {
 		ppu.RequestedScrollY = val
-		ppu.ScrollRegSelector = 0
+		ppu.DualRegSelector = 0
 	}
 }
 func (ppu *ppu) readScrollReg() byte {
@@ -451,7 +451,6 @@ func (ppu *ppu) readStatusReg() byte {
 		false, false, false, false, false,
 	)
 	ppu.VBlankAlert = false
-	ppu.ScrollRegSelector = 0
-	ppu.AddrRegSelector = 0
+	ppu.DualRegSelector = 0
 	return result | (ppu.SharedReg & 0x1f)
 }

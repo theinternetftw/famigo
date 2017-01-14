@@ -540,7 +540,7 @@ func (sound *sound) writeVolDutyReg(val byte) {
 
 func (sound *sound) writeSweepReg(val byte) {
 	sound.SweepEnable = val&0x80 == 0x80
-	sound.SweepDivider = ((val >> 4) & 0x07) + 1
+	sound.SweepDivider = (val >> 4) & 0x07
 	sound.SweepNegate = val&0x08 == 0x08
 	sound.SweepShift = val & 0x07
 	sound.SweepReload = true

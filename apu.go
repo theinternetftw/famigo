@@ -443,10 +443,6 @@ func (sound *sound) runLengthCycle() {
 }
 
 func (sound *sound) runSweepCycle() {
-	if sound.SweepReload {
-		sound.SweepCounter = sound.SweepDivider
-		sound.SweepReload = false
-	}
 	if sound.SweepCounter > 0 {
 		sound.SweepCounter--
 	} else {
@@ -455,6 +451,10 @@ func (sound *sound) runSweepCycle() {
 			sound.PeriodTimer = sound.SweepTargetPeriod
 			sound.updateFreq()
 		}
+	}
+	if sound.SweepReload {
+		sound.SweepCounter = sound.SweepDivider
+		sound.SweepReload = false
 	}
 }
 

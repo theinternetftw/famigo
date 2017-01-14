@@ -31,6 +31,9 @@ func (apu *apu) init() {
 	apu.DMC.SoundType = dmcSoundType
 	apu.Noise.SoundType = noiseSoundType
 	apu.Noise.NoiseShiftRegister = 1
+
+	apu.Noise.NoisePeriod = noisePeriodTable[0]
+	apu.DMC.DMCPeriod = dmcPeriodTable[0]
 }
 
 const (
@@ -421,9 +424,7 @@ var noisePeriodTable = []uint16{
 }
 
 func (sound *sound) loadNoisePeriod(regVal byte) {
-	if sound.On {
-		sound.NoisePeriod = noisePeriodTable[regVal]
-	}
+	sound.NoisePeriod = noisePeriodTable[regVal]
 }
 
 func (sound *sound) getCurrentVolume() byte {

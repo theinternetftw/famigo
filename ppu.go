@@ -354,23 +354,19 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 		if ppu.LineY >= 0 && ppu.LineY < 240 && ppu.PPUCyclesSinceYInc&0x07 == 0 {
 			for i := 0; i < 8; i++ {
 
-				r, g, b := byte(0), byte(0), byte(0)
+				color := ppu.getBackgroundColor() & 0x3f
 				bgPattern := byte(0)
 
 				if ppu.ShowBG && (ppu.LineX >= 8 || ppu.ShowBGInLeftBorder) {
 					tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
 					patternAddr := ppu.getBGPatternAddr(tileID)
 					bgPattern = ppu.getPattern(cs, patternAddr, byte(ppu.LineX)+fineScrollXCopy, ppu.getFineScrollY())
-					var color byte
-					if bgPattern == 0 {
-						color = ppu.getBackgroundColor() & 0x3f
-					} else {
+					if bgPattern != 0 {
 						attributeByte := ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
 						paletteID := ppu.getPaletteIDFromAttributeByte(attributeByte, ppu.getBGTileX(), ppu.getBGTileY())
 						colorAddr := (paletteID << 2) | bgPattern
 						color = ppu.PaletteRAM[colorAddr] & 0x3f
 					}
-					r, g, b = ppu.getRGB(color)
 				}
 
 				if ppu.ShowSprites && (ppu.LineX >= 8 || ppu.ShowSpritesInLeftBorder) {
@@ -417,10 +413,7 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 								}
 								if !entry.BehindBG || bgPattern == 0 {
 									colorAddr := 0x10 | (entry.PaletteID << 2) | pattern
-									color := ppu.PaletteRAM[colorAddr] & 0x3f
-									r = defaultPalette[color*3]
-									g = defaultPalette[color*3+1]
-									b = defaultPalette[color*3+2]
+									color = ppu.PaletteRAM[colorAddr] & 0x3f
 								}
 								break // the algo stops on non-transparency whether a pixel was drawn or not...
 							}
@@ -428,6 +421,7 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 					}
 				}
 
+				r, g, b := ppu.getRGB(color)
 				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4] = r
 				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+1] = g
 				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+2] = b

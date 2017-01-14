@@ -17,7 +17,6 @@ type ppu struct {
 	AddrRegSelector byte
 	DataReadBuffer  byte
 
-	InVBlank       bool
 	VBlankAlert    bool
 	SpriteZeroHit  bool
 	SpriteOverflow bool // misnomer: complicated role, due to hw bugs
@@ -338,13 +337,13 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 	if ppu.PPUCyclesSinceYInc == 1 {
 		if ppu.LineY == 241 {
 			ppu.FrameCounter++
-			ppu.InVBlank = true
 			ppu.VBlankAlert = true
 			cs.flipRequested = true
 			if ppu.GenerateVBlankNMIs {
 				cs.NMI = true
 			}
 		} else if ppu.LineY == -1 {
+			ppu.VBlankAlert = false
 			ppu.SpriteZeroHit = false
 		} else if ppu.LineY >= 0 && ppu.LineY < 240 {
 			ppu.OAMForScanline = ppu.OAMForScanline[:0]
@@ -456,21 +455,22 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 		}
 	}
 
-	if ppu.PPUCyclesSinceYInc == 340 {
+	if ppu.PPUCyclesSinceYInc == 304 {
 		if ppu.LineY == -1 {
-			// NOTE: technically, happens from cycles 280-304
+			// NOTE: technically, happens over and over from cycles 280-304
 			if ppu.ShowBG || ppu.ShowSprites {
 				ppu.copyVerticalScrollBits()
 				ppu.copyHorizontalScrollBits()
 				fineScrollXCopy = ppu.FineScrollX
 			}
 		}
+	}
+
+	if ppu.PPUCyclesSinceYInc == 341 {
 		ppu.PPUCyclesSinceYInc = 0
 		ppu.LineX = 0
 		ppu.LineY++
-		if ppu.LineY == 260 {
-			ppu.InVBlank = false
-			ppu.VBlankAlert = false
+		if ppu.LineY == 261 {
 			ppu.LineY = -1
 		}
 	}

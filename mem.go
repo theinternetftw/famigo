@@ -100,7 +100,7 @@ func (cs *cpuState) write(addr uint16, val byte) {
 	case addr == 0x4011:
 		cs.APU.DMC.writeDMCCurrentValue(val)
 	case addr == 0x4012:
-		cs.APU.DMC.writeDMCSampleAddr(val)
+		cs.APU.DMC.writeDMCInitialSampleAddr(val)
 	case addr == 0x4013:
 		cs.APU.DMC.writeDMCSampleLength(val)
 	case addr == 0x4014:

@@ -119,6 +119,48 @@ func (apu *apu) runFrameCounterCycle() {
 	apu.FrameCounter++
 }
 
+func (sound *sound) updateDMCOutput(cs *cpuState) {
+	if sound.DMCRestartFlag {
+		sound.DMCRestartFlag = false
+		sound.DMCCurrentSampleAddr = sound.DMCInitialSampleAddr
+		sound.DMCSampleBytesRemaining = sound.DMCSampleLength
+	}
+
+	if sound.DMCSampleBitsRemaining > 0 {
+		if !sound.DMCSilenceFlag {
+			if sound.DMCCurrentSampleByte&0x01 == 1 {
+				if sound.DMCCurrentValue <= 125 {
+					sound.DMCCurrentValue += 2
+				}
+			} else {
+				if sound.DMCCurrentValue >= 2 {
+					sound.DMCCurrentValue -= 2
+				}
+			}
+		}
+		sound.DMCCurrentSampleByte >>= 1
+		sound.DMCSampleBitsRemaining--
+	} else {
+		sound.DMCSampleBitsRemaining = 8
+		if sound.DMCSampleBytesRemaining > 0 {
+			sound.DMCSilenceFlag = false
+			sound.DMCCurrentSampleByte = cs.read(sound.DMCCurrentSampleAddr)
+			sound.DMCCurrentSampleAddr = (sound.DMCCurrentSampleAddr + 1) | 0x8000
+			sound.DMCSampleBytesRemaining--
+			if sound.DMCSampleBytesRemaining == 0 {
+				if sound.DMCLoopEnabled {
+					sound.DMCRestartFlag = true
+				}
+				if sound.DMCIRQEnabled {
+					sound.DMCInterruptRequested = true
+				}
+			}
+		} else {
+			sound.DMCSilenceFlag = true
+		}
+	}
+}
+
 func (apu *apu) runCycle(cs *cpuState) {
 
 	apu.runFrameCounterCycle()
@@ -130,6 +172,8 @@ func (apu *apu) runCycle(cs *cpuState) {
 
 		left, right := 0.0, 0.0
 
+		apu.runFreqCycle(cs)
+
 		p1 := apu.Pulse1.getSample()
 		p2 := apu.Pulse2.getSample()
 		tri := apu.Triangle.getSample()
@@ -137,9 +181,8 @@ func (apu *apu) runCycle(cs *cpuState) {
 		dmc := apu.DMC.getSample()
 		noise := apu.Noise.getSample()
 
-		pSamples := 95.88 / ((8128 / (p1 + p2)) + 100)
-		tdnSamples := 159.79 / ((1 / ((tri / 8227) + (noise / 12241) + (dmc / 22638))) + 100)
-
+		pSamples := 95.88 / (8128/(float64(p1)+float64(p2)) + 100)
+		tdnSamples := 159.79 / (1/(float64(tri)/8227+float64(noise)/12241+float64(dmc)/22638) + 100)
 		sample := pSamples + tdnSamples
 
 		left, right = sample, sample
@@ -152,14 +195,18 @@ func (apu *apu) runCycle(cs *cpuState) {
 			byte(sampleR >> 8),
 		})
 	}
+
+	if apu.DMC.DMCInterruptRequested {
+		cs.IRQ = true
+	}
 }
 
-func (apu *apu) runFreqCycle() {
-	apu.Pulse1.runFreqCycle()
-	apu.Pulse2.runFreqCycle()
-	apu.Triangle.runFreqCycle()
-	apu.DMC.runFreqCycle()
-	apu.Noise.runFreqCycle()
+func (apu *apu) runFreqCycle(cs *cpuState) {
+	apu.Pulse1.runFreqCycle(cs)
+	apu.Pulse2.runFreqCycle(cs)
+	apu.Triangle.runFreqCycle(cs)
+	apu.DMC.runFreqCycle(cs)
+	apu.Noise.runFreqCycle(cs)
 }
 
 func (apu *apu) runEnvCycle() {
@@ -180,7 +227,7 @@ func (apu *apu) runLengthCycle() {
 	apu.Noise.runLengthCycle()
 }
 
-func (sound *sound) runFreqCycle() {
+func (sound *sound) runFreqCycle(cs *cpuState) {
 
 	sound.T += sound.Freq * timePerSample
 
@@ -188,6 +235,8 @@ func (sound *sound) runFreqCycle() {
 		sound.T -= 1.0
 		if sound.SoundType == noiseSoundType {
 			sound.updateNoiseShiftRegister()
+		} else if sound.SoundType == dmcSoundType {
+			sound.updateDMCOutput(cs)
 		}
 	}
 }
@@ -208,6 +257,7 @@ func (sound *sound) updateNoiseShiftRegister() {
 func (sound *sound) updateFreq() {
 	switch sound.SoundType {
 	case dmcSoundType:
+		sound.Freq = 1789773.0 / float64(sound.DMCPeriod)
 	case noiseSoundType:
 		sound.Freq = 1789773.0 / float64(sound.NoisePeriod)
 	case triangleSoundType:
@@ -245,44 +295,36 @@ func (sound *sound) getTriangleSample() byte {
 	return val
 }
 
-func (sound *sound) getSample() float64 {
-	sample := 0.0
-	if sound.On {
-		switch sound.SoundType {
-		case squareSoundType:
-			vol := float64(sound.getCurrentVolume())
-			if vol > 0 {
-				if sound.LengthCounter > 0 {
-					if sound.sweepTargetInRange() { // an out-of-range sweep target mutes even if sweep is disabled
-						sound.runFreqCycle()
-						if sound.inDutyCycle() {
-							sample = vol
-						} else {
-							sample = 0.0
-						}
-					}
-				}
-			}
-		case triangleSoundType:
-			audible := sound.PeriodTimer >= 2 // not accurate, but eliminates annoying clicks
-			if audible && sound.LengthCounter > 0 && sound.TriangleLinearCounter > 0 {
-				sound.runFreqCycle()
-				sample = float64(sound.getTriangleSample())
-			}
-		case noiseSoundType:
-			vol := float64(sound.getCurrentVolume())
-			if vol > 0 {
-				if sound.LengthCounter > 0 {
-					sound.runFreqCycle()
-					if sound.NoiseShiftRegister&0x01 == 0x01 {
+func (sound *sound) getSample() byte {
+	sample := byte(0)
+	switch sound.SoundType {
+	case squareSoundType:
+		vol := sound.getCurrentVolume()
+		if sound.On && vol > 0 {
+			if sound.LengthCounter > 0 {
+				if sound.sweepTargetInRange() { // an out-of-range sweep target mutes even if sweep is disabled
+					if sound.inDutyCycle() {
 						sample = vol
-					} else {
-						sample = 0.0
 					}
 				}
 			}
-		case dmcSoundType:
 		}
+	case triangleSoundType:
+		audible := sound.PeriodTimer >= 2 // not accurate, but eliminates annoying clicks
+		if sound.On && audible && sound.LengthCounter > 0 && sound.TriangleLinearCounter > 0 {
+			sample = sound.getTriangleSample()
+		}
+	case noiseSoundType:
+		vol := sound.getCurrentVolume()
+		if sound.On && vol > 0 {
+			if sound.LengthCounter > 0 {
+				if sound.NoiseShiftRegister&0x01 == 0x01 {
+					sample = vol
+				}
+			}
+		}
+	case dmcSoundType:
+		sample = sound.DMCCurrentValue
 	}
 	return sample
 }
@@ -311,13 +353,19 @@ type sound struct {
 	TriangleLinearCounterReloadValue byte
 	TriangleLinearCounterReloadFlag  bool
 
-	DMCSampleLength       uint16
-	DMCSampleAddr         uint16
-	DMCCurrentValue       byte
-	DMCIRQEnabled         bool
-	DMCLoopEnabled        bool
-	DMCRateSelector       byte
-	DMCInterruptRequested bool
+	DMCSampleLength         uint16
+	DMCSampleBytesRemaining uint16
+	DMCSampleBitsRemaining  uint16
+	DMCCurrentSampleByte    byte
+	DMCSilenceFlag          bool
+	DMCRestartFlag          bool
+	DMCInitialSampleAddr    uint16
+	DMCCurrentSampleAddr    uint16
+	DMCCurrentValue         byte
+	DMCIRQEnabled           bool
+	DMCLoopEnabled          bool
+	DMCInterruptRequested   bool
+	DMCPeriod               uint16
 
 	NoiseShortLoopFlag bool
 	NoisePeriod        uint16
@@ -358,6 +406,14 @@ func (sound *sound) loadLengthCounter(regVal byte) {
 	if sound.On {
 		sound.LengthCounter = lengthCounterTable[regVal] + 1
 	}
+}
+
+var dmcPeriodTable = []uint16{
+	428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
+}
+
+func (sound *sound) loadDMCPeriod(regVal byte) {
+	sound.DMCPeriod = dmcPeriodTable[regVal]
 }
 
 var noisePeriodTable = []uint16{
@@ -467,10 +523,9 @@ func (sound *sound) writePeriodHighTimerReg(val byte) {
 	sound.loadLengthCounter(val >> 3)
 	sound.VolumeRestart = true
 	sound.TriangleLinearCounterReloadFlag = true
-	// if sound.SoundType == squareSoundType {
-	// inaccurate, but do this for triangle too as it removes a lot of clicks...
-	sound.T = 0 // nesdev wiki: "sequencer is restarted"
-	// }
+	if sound.SoundType == squareSoundType {
+		sound.T = 0 // nesdev wiki: "sequencer is restarted"
+	}
 	sound.updateFreq()
 }
 
@@ -504,8 +559,8 @@ func (sound *sound) writeDMCSampleLength(val byte) {
 	sound.DMCSampleLength = (uint16(val) << 4) + 1
 }
 
-func (sound *sound) writeDMCSampleAddr(val byte) {
-	sound.DMCSampleAddr = 0xc000 | (uint16(val) << 6)
+func (sound *sound) writeDMCInitialSampleAddr(val byte) {
+	sound.DMCInitialSampleAddr = 0xc000 | (uint16(val) << 6)
 }
 
 func (sound *sound) writeDMCCurrentValue(val byte) {
@@ -515,7 +570,11 @@ func (sound *sound) writeDMCCurrentValue(val byte) {
 func (sound *sound) writeDMCFlagsAndRate(val byte) {
 	sound.DMCIRQEnabled = val&0x80 == 0x80
 	sound.DMCLoopEnabled = val&0x40 == 0x40
-	sound.DMCRateSelector = val & 0x0f
+	sound.loadDMCPeriod(val & 0x0f)
+	sound.updateFreq()
+	if !sound.DMCIRQEnabled {
+		sound.DMCInterruptRequested = false
+	}
 }
 
 func (sound *sound) writeNoiseLength(val byte) {
@@ -532,6 +591,15 @@ func (sound *sound) setChannelOn(val bool) {
 	sound.On = val
 	if !sound.On {
 		sound.LengthCounter = 0
+		if sound.SoundType == dmcSoundType {
+			sound.DMCSampleBytesRemaining = 0
+		}
+	} else {
+		if sound.SoundType == dmcSoundType {
+			if sound.DMCSampleBytesRemaining == 0 {
+				sound.DMCRestartFlag = true
+			}
+		}
 	}
 }
 
@@ -549,7 +617,7 @@ func (apu *apu) readStatusReg() byte {
 		apu.DMC.DMCInterruptRequested,
 		apu.FrameInterruptRequested,
 		true,
-		apu.DMC.DMCSampleLength > 0, // FIXME: when dmc is implemented this should be bytesRemaining > 0
+		apu.DMC.DMCSampleBytesRemaining > 0,
 		apu.Noise.LengthCounter > 0,
 		apu.Triangle.LengthCounter > 0,
 		apu.Pulse2.LengthCounter > 0,

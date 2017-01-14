@@ -29,6 +29,7 @@ func (apu *apu) init() {
 	apu.Triangle.SoundType = triangleSoundType
 	apu.DMC.SoundType = dmcSoundType
 	apu.Noise.SoundType = noiseSoundType
+	apu.Noise.NoiseShiftRegister = 1
 }
 
 const (
@@ -170,13 +171,30 @@ func (sound *sound) runFreqCycle() {
 
 	for sound.T > 1.0 {
 		sound.T -= 1.0
+		if sound.SoundType == noiseSoundType {
+			sound.updateNoiseShiftRegister()
+		}
 	}
+}
+
+func (sound *sound) updateNoiseShiftRegister() {
+	var feedback uint16
+	if sound.NoiseShortLoopFlag {
+		feedback = (sound.NoiseShiftRegister >> 6) & 0x01
+	} else {
+		feedback = (sound.NoiseShiftRegister >> 1) & 0x01
+	}
+	feedback ^= sound.NoiseShiftRegister & 0x01
+	sound.NoiseShiftRegister >>= 1
+	sound.NoiseShiftRegister &^= 0x4000
+	sound.NoiseShiftRegister |= feedback << 14
 }
 
 func (sound *sound) updateFreq() {
 	switch sound.SoundType {
 	case dmcSoundType:
 	case noiseSoundType:
+		sound.Freq = 1789773.0 / float64(sound.NoisePeriod)
 	case triangleSoundType:
 		sound.Freq = 1789773.0 / (32.0 * float64(sound.PeriodTimer+1))
 	case squareSoundType:
@@ -238,8 +256,19 @@ func (sound *sound) getSample() float64 {
 				sound.runFreqCycle()
 				sample = float64(sound.getTriangleSample())
 			}
-		case dmcSoundType:
 		case noiseSoundType:
+			vol := float64(sound.getCurrentVolume())
+			if vol > 0 {
+				if sound.LengthCounter > 0 {
+					sound.runFreqCycle()
+					if sound.NoiseShiftRegister&0x01 == 0x01 {
+						sample = vol
+					} else {
+						sample = 0.0
+					}
+				}
+			}
+		case dmcSoundType:
 		}
 	}
 	return sample
@@ -277,8 +306,9 @@ type sound struct {
 	DMCRateSelector       byte
 	DMCInterruptRequested bool
 
-	NoiseLoopEnabled bool
-	NoisePeriod      byte
+	NoiseShortLoopFlag bool
+	NoisePeriod        uint16
+	NoiseShiftRegister uint16
 
 	UsesConstantVolume bool
 	InitialVolume      byte
@@ -314,6 +344,16 @@ var lengthCounterTable = []byte{
 func (sound *sound) loadLengthCounter(regVal byte) {
 	if sound.On {
 		sound.LengthCounter = lengthCounterTable[regVal] + 1
+	}
+}
+
+var noisePeriodTable = []uint16{
+	4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 280, 508, 762, 1016, 2034, 4068,
+}
+
+func (sound *sound) loadNoisePeriod(regVal byte) {
+	if sound.On {
+		sound.NoisePeriod = noisePeriodTable[regVal]
 	}
 }
 
@@ -469,8 +509,9 @@ func (sound *sound) writeNoiseLength(val byte) {
 }
 
 func (sound *sound) writeNoiseControlReg(val byte) {
-	sound.NoiseLoopEnabled = val&0x80 == 0x80
-	sound.NoisePeriod = val & 0x0f
+	sound.NoiseShortLoopFlag = val&0x80 == 0x80
+	sound.loadNoisePeriod(val & 0x0f)
+	sound.updateFreq()
 }
 
 func (apu *apu) writeStatusReg(val byte) {

@@ -514,15 +514,20 @@ func (sound *sound) writeNoiseControlReg(val byte) {
 	sound.updateFreq()
 }
 
+func (sound *sound) setChannelOn(val bool) {
+	sound.On = val
+	if !sound.On {
+		sound.LengthCounter = 0
+	}
+}
+
 func (apu *apu) writeStatusReg(val byte) {
-	boolsFromByte(val,
-		nil, nil, nil,
-		&apu.DMC.On,
-		&apu.Noise.On,
-		&apu.Triangle.On,
-		&apu.Pulse2.On,
-		&apu.Pulse1.On,
-	)
+	apu.DMC.setChannelOn(val&0x10 == 0x10)
+	apu.Noise.setChannelOn(val&0x08 == 0x08)
+	apu.Triangle.setChannelOn(val&0x04 == 0x04)
+	apu.Pulse2.setChannelOn(val&0x02 == 0x02)
+	apu.Pulse1.setChannelOn(val&0x01 == 0x01)
+
 	apu.DMC.DMCInterruptRequested = false
 }
 func (apu *apu) readStatusReg() byte {
@@ -530,9 +535,9 @@ func (apu *apu) readStatusReg() byte {
 		apu.DMC.DMCInterruptRequested,
 		apu.FrameInterruptRequested,
 		true,
-		apu.DMC.DMCSampleLength > 0, // NOTE: make sure this means "DMC active"
+		apu.DMC.DMCSampleLength > 0, // FIXME: when dmc is implemented this should be bytesRemaining > 0
 		apu.Noise.LengthCounter > 0,
-		apu.Triangle.LengthCounter > 0 || apu.Triangle.TriangleLinearCounter > 0,
+		apu.Triangle.LengthCounter > 0,
 		apu.Pulse2.LengthCounter > 0,
 		apu.Pulse1.LengthCounter > 0,
 	)

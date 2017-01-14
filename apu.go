@@ -402,7 +402,7 @@ func (sound *sound) runSweepCycle() {
 }
 
 func (sound *sound) sweepTargetInRange() bool {
-	return sound.SweepTargetPeriod <= 0x7ff && sound.SweepTargetPeriod >= 8
+	return sound.SweepTargetPeriod <= 0x7ff && sound.PeriodTimer >= 8
 }
 
 func (sound *sound) updateSweepTargetPeriod() {

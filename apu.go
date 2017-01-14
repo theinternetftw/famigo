@@ -471,7 +471,7 @@ func (sound *sound) updateSweepTargetPeriod() {
 			periodDelta = -periodDelta
 		}
 	}
-	sound.SweepTargetPeriod = uint16(int(sound.PeriodTimer) + periodDelta)
+	sound.SweepTargetPeriod = uint16(int(sound.PeriodTimer)+periodDelta) & 0x7ff
 }
 
 func (sound *sound) runTriangleLengthCycle() {

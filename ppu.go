@@ -279,9 +279,11 @@ func (ppu *ppu) getPaletteIDFromAttributeByte(attributes byte, tileX, tileY byte
 }
 
 func (ppu *ppu) getBackgroundColor() byte {
-	if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x4000 {
-		// activate background color hack
-		return ppu.PaletteRAM[getPaletteRAMAddr(ppu.AddrReg)]
+	if !ppu.ShowBG && !ppu.ShowSprites {
+		if ppu.AddrReg >= 0x3f00 && ppu.AddrReg < 0x4000 {
+			// activate background color hack
+			return ppu.PaletteRAM[getPaletteRAMAddr(ppu.AddrReg)]
+		}
 	}
 	// otherwise we use the universal background color
 	return ppu.PaletteRAM[0]

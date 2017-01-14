@@ -238,14 +238,12 @@ func (sound *sound) getSample() float64 {
 			vol := float64(sound.getCurrentVolume())
 			if vol > 0 {
 				if sound.LengthCounter > 0 {
-					if !sound.sweepTargetTooHigh() { // a high sweep target mutes even if sweep is disabled
-						if sound.PeriodTimer >= 8 { // some freqs are off-limits to square channels due to 100s-of-khz harmonics
-							sound.runFreqCycle()
-							if sound.inDutyCycle() {
-								sample = vol
-							} else {
-								sample = 0.0
-							}
+					if sound.sweepTargetInRange() { // an out-of-range sweep target mutes even if sweep is disabled
+						sound.runFreqCycle()
+						if sound.inDutyCycle() {
+							sample = vol
+						} else {
+							sample = 0.0
 						}
 					}
 				}
@@ -381,15 +379,15 @@ func (sound *sound) runSweepCycle() {
 		sound.SweepCounter--
 	} else {
 		sound.SweepCounter = sound.SweepDivider
-		if sound.SweepEnable && !sound.sweepTargetTooHigh() {
+		if sound.SweepEnable && sound.sweepTargetInRange() {
 			sound.PeriodTimer = sound.SweepTargetPeriod
 			sound.updateFreq()
 		}
 	}
 }
 
-func (sound *sound) sweepTargetTooHigh() bool {
-	return sound.SweepTargetPeriod > 0x7ff
+func (sound *sound) sweepTargetInRange() bool {
+	return sound.SweepTargetPeriod <= 0x7ff && sound.SweepTargetPeriod >= 8
 }
 
 func (sound *sound) updateSweepTargetPeriod() {

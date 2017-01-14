@@ -4,6 +4,7 @@ type apu struct {
 	FrameCounterInterruptInhibit bool
 	FrameCounterSequencerMode    byte
 	FrameInterruptRequested      bool
+	FrameCounterManualTrigger    bool
 	FrameCounter                 uint64
 
 	buffer apuCircleBuf
@@ -74,8 +75,7 @@ func (c *apuCircleBuf) mask(i uint) uint { return i & (uint(len(c.buf)) - 1) }
 func (c *apuCircleBuf) size() uint       { return c.writeIndex - c.readIndex }
 func (c *apuCircleBuf) full() bool       { return c.size() == uint(len(c.buf)) }
 
-func (apu *apu) runCycle(cs *cpuState) {
-
+func (apu *apu) runFrameCounterCycle() {
 	if apu.FrameCounterSequencerMode == 0 {
 		c := apu.FrameCounter
 		if c == 3728 || c == 7456 || c == 11185 || c == 14914 {
@@ -89,7 +89,6 @@ func (apu *apu) runCycle(cs *cpuState) {
 		if c == 14914 {
 			if !apu.FrameCounterInterruptInhibit {
 				apu.FrameInterruptRequested = true
-				cs.IRQ = true
 			}
 		}
 		if c == 14915 {
@@ -109,7 +108,23 @@ func (apu *apu) runCycle(cs *cpuState) {
 			apu.FrameCounter = 0
 		}
 	}
+	if apu.FrameCounterManualTrigger {
+		apu.FrameCounterManualTrigger = false
+
+		apu.runEnvCycle()
+		apu.Triangle.runTriangleLengthCycle()
+		apu.runLengthCycle()
+		apu.runSweepCycle()
+	}
 	apu.FrameCounter++
+}
+
+func (apu *apu) runCycle(cs *cpuState) {
+
+	apu.runFrameCounterCycle()
+	if apu.FrameInterruptRequested {
+		cs.IRQ = true
+	}
 
 	if !apu.buffer.full() {
 
@@ -478,10 +493,11 @@ func (sound *sound) writeSweepReg(val byte) {
 func (apu *apu) writeFrameCounterReg(val byte) {
 	apu.FrameCounterInterruptInhibit = val&0x40 == 0x40
 	apu.FrameCounterSequencerMode = val >> 7
-	// NOTE: frame counter should be reset here, but until
-	// we have more accurate timing, it makes sweeps sound
-	// weird on games (e.g. smbros) that write to this reg
-	// for sync
+
+	apu.FrameCounter = 0
+	if apu.FrameCounterSequencerMode == 1 {
+		apu.FrameCounterManualTrigger = true
+	}
 }
 
 func (sound *sound) writeDMCSampleLength(val byte) {

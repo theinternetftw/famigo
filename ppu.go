@@ -44,6 +44,8 @@ type ppu struct {
 	OAMAddrReg byte
 
 	PaletteRAM [32]byte
+
+	FrameCounter uint
 }
 
 type oamEntry struct {
@@ -324,12 +326,13 @@ func (ppu *ppu) getBGTileX() byte     { return byte(ppu.AddrReg) & 0x1f }
 func (ppu *ppu) getBGTileY() byte     { return byte(ppu.AddrReg>>5) & 0x1f }
 func (ppu *ppu) getFineScrollY() byte { return byte(ppu.AddrReg>>12) & 0x07 }
 
-// FIXME: temp hack due to timing issues (games settings fineX before we're ready)
+// FIXME: (hopefully) temp hack due to timing issues (games setting fineX before we're ready)
 var fineScrollXCopy byte
 
 func (ppu *ppu) runCycle(cs *cpuState) {
 	if ppu.PPUCyclesSinceYInc == 1 {
 		if ppu.LineY == 241 {
+			ppu.FrameCounter++
 			ppu.InVBlank = true
 			ppu.VBlankAlert = true
 			cs.flipRequested = true
@@ -435,23 +438,22 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 				}
 			}
 		}
-
-		if ppu.PPUCyclesSinceYInc == 256 {
-			if ppu.ShowBG || ppu.ShowSprites {
-				ppu.incrementVerticalScrollBits()
-			}
-		}
 	}
 
-	if ppu.ShowBG || ppu.ShowSprites {
-		if ppu.PPUCyclesSinceYInc == 257 {
-			ppu.copyHorizontalScrollBits()
-			fineScrollXCopy = ppu.FineScrollX
+	if ppu.LineY >= 0 && ppu.LineY < 240 {
+		if ppu.ShowBG || ppu.ShowSprites {
+			if ppu.PPUCyclesSinceYInc == 256 {
+				ppu.incrementVerticalScrollBits()
+			}
+			if ppu.PPUCyclesSinceYInc == 257 {
+				ppu.copyHorizontalScrollBits()
+				fineScrollXCopy = ppu.FineScrollX
+			}
+			// NOTE: seems and acts wrong, but is perscribed in nesdev wiki
+			// if ppu.PPUCyclesSinceYInc == 328 || ppu.PPUCyclesSinceYInc == 336 {
+			// 	ppu.incrementHorizontalScrollBits()
+			// }
 		}
-		// NOTE: seems and acts wrong, but is perscribed in nesdev wiki
-		// if ppu.PPUCyclesSinceYInc == 328 || ppu.PPUCyclesSinceYInc == 336 {
-		// 	ppu.incrementHorizontalScrollBits()
-		// }
 	}
 
 	if ppu.PPUCyclesSinceYInc == 340 {
@@ -459,6 +461,8 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 			// NOTE: technically, happens from cycles 280-304
 			if ppu.ShowBG || ppu.ShowSprites {
 				ppu.copyVerticalScrollBits()
+				ppu.copyHorizontalScrollBits()
+				fineScrollXCopy = ppu.FineScrollX
 			}
 		}
 		ppu.PPUCyclesSinceYInc = 0

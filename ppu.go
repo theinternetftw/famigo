@@ -355,71 +355,72 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 				r, g, b := byte(0), byte(0), byte(0)
 				bgPattern := byte(0)
 
-				tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
-				patternAddr := ppu.getBGPatternAddr(tileID)
-				bgPattern = ppu.getPattern(cs, patternAddr, byte(ppu.LineX)+fineScrollXCopy, ppu.getFineScrollY())
-				var color byte
-				if bgPattern == 0 {
-					color = ppu.getBackgroundColor() & 0x3f
-				} else {
-					attributeByte := ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
-					paletteID := ppu.getPaletteIDFromAttributeByte(attributeByte, ppu.getBGTileX(), ppu.getBGTileY())
-					colorAddr := (paletteID << 2) | bgPattern
-					color = ppu.PaletteRAM[colorAddr] & 0x3f
-				}
 				if ppu.ShowBG && (ppu.LineX >= 8 || ppu.ShowBGInLeftBorder) {
+					tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
+					patternAddr := ppu.getBGPatternAddr(tileID)
+					bgPattern = ppu.getPattern(cs, patternAddr, byte(ppu.LineX)+fineScrollXCopy, ppu.getFineScrollY())
+					var color byte
+					if bgPattern == 0 {
+						color = ppu.getBackgroundColor() & 0x3f
+					} else {
+						attributeByte := ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
+						paletteID := ppu.getPaletteIDFromAttributeByte(attributeByte, ppu.getBGTileX(), ppu.getBGTileY())
+						colorAddr := (paletteID << 2) | bgPattern
+						color = ppu.PaletteRAM[colorAddr] & 0x3f
+					}
 					r, g, b = ppu.getRGB(color)
 				}
 
-				x, y := byte(ppu.LineX), byte(ppu.LineY)
-				for i := len(ppu.OAMForScanline) - 1; i >= 0; i-- {
-					entry := ppu.OAMForScanline[i]
-					if ppu.xInRange(entry.X, x) {
-						tileID := entry.TileField
-						var spriteY, spriteX byte
-						height := byte(8)
-						if ppu.UseBigSprites {
-							height = 16
-						}
-						if entry.FlipY {
-							spriteY = (height - 1) - (y - entry.Y)
-						} else {
-							spriteY = y - entry.Y
-						}
-						if entry.FlipX {
-							spriteX = 7 - (x - entry.X)
-						} else {
-							spriteX = x - entry.X
-						}
-						patternTbl := uint16(0x0000)
-						if ppu.UseUpperSpritePatternTable || (ppu.UseBigSprites && (tileID&0x01 == 0x01)) {
-							patternTbl = 0x1000
-						}
-						if ppu.UseBigSprites {
-							if spriteY >= 8 {
-								tileID |= 0x01
-							} else {
-								tileID &^= 0x01
+				if ppu.ShowSprites && (ppu.LineX >= 8 || ppu.ShowSpritesInLeftBorder) {
+					x, y := byte(ppu.LineX), byte(ppu.LineY)
+					for i := 0; i < len(ppu.OAMForScanline); i++ {
+						entry := ppu.OAMForScanline[i]
+						if ppu.xInRange(entry.X, x) {
+							tileID := entry.TileField
+							var spriteY, spriteX byte
+							height := byte(8)
+							if ppu.UseBigSprites {
+								height = 16
 							}
-						}
-						patternAddr := patternTbl | (uint16(tileID) << 4)
-						pattern := ppu.getPattern(cs, patternAddr, spriteX, spriteY)
-						if pattern != 0 {
-							if entry.OAMIndex == 0 {
-								if ppu.ShowSprites && ppu.ShowBG && ppu.LineX != 255 {
-									if bgPattern != 0 {
-										ppu.SpriteZeroHit = true
-									}
+							if entry.FlipY {
+								spriteY = (height - 1) - (y - entry.Y)
+							} else {
+								spriteY = y - entry.Y
+							}
+							if entry.FlipX {
+								spriteX = 7 - (x - entry.X)
+							} else {
+								spriteX = x - entry.X
+							}
+							patternTbl := uint16(0x0000)
+							if ppu.UseUpperSpritePatternTable || (ppu.UseBigSprites && (tileID&0x01 == 0x01)) {
+								patternTbl = 0x1000
+							}
+							if ppu.UseBigSprites {
+								if spriteY >= 8 {
+									tileID |= 0x01
+								} else {
+									tileID &^= 0x01
 								}
 							}
-							if ppu.ShowSprites && (!entry.BehindBG || bgPattern == 0) {
-								if ppu.LineX >= 8 || ppu.ShowSpritesInLeftBorder {
+							patternAddr := patternTbl | (uint16(tileID) << 4)
+							pattern := ppu.getPattern(cs, patternAddr, spriteX, spriteY)
+							if pattern != 0 {
+								if entry.OAMIndex == 0 {
+									if ppu.ShowBG && ppu.LineX != 255 {
+										if bgPattern != 0 {
+											ppu.SpriteZeroHit = true
+										}
+									}
+								}
+								if !entry.BehindBG || bgPattern == 0 {
 									colorAddr := 0x10 | (entry.PaletteID << 2) | pattern
 									color := ppu.PaletteRAM[colorAddr] & 0x3f
 									r = defaultPalette[color*3]
 									g = defaultPalette[color*3+1]
 									b = defaultPalette[color*3+2]
 								}
+								break // the algo stops on non-transparency whether a pixel was drawn or not...
 							}
 						}
 					}

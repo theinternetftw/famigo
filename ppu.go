@@ -256,6 +256,9 @@ func (ppu *ppu) read(cs *cpuState, addr uint16) byte {
 var defaultPalette = ntscPaletteSat
 
 func (ppu *ppu) getRGB(nesColor byte) (byte, byte, byte) {
+	if ppu.UseGreyscale {
+		nesColor &= 0x30
+	}
 	emphasisSelector := uint(0)
 	if ppu.EmphasizeRed {
 		emphasisSelector |= 1

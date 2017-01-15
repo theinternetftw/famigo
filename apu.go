@@ -341,15 +341,16 @@ type sound struct {
 	Freq float64
 
 	// square waves only
-	DutyCycleSelector       byte
-	SweepEnable             bool
-	SweepNegate             bool
-	SweepReload             bool
-	SweepDivider            byte
-	SweepCounter            byte
-	SweepShift              byte
-	SweepTargetPeriod       uint16
-	SweepUsesOnesComplement bool // hard-wired to pulse1
+	DutyCycleSelector         byte
+	SweepEnable               bool
+	SweepNegate               bool
+	SweepReload               bool
+	SweepDivider              byte
+	SweepCounter              byte
+	SweepShift                byte
+	SweepTargetPeriod         uint16
+	SweepTargetPeriodOverflow bool
+	SweepUsesOnesComplement   bool // hard-wired to pulse1
 
 	TriangleLinearCounter            byte
 	TriangleLinearCounterControlFlag bool
@@ -459,7 +460,7 @@ func (sound *sound) runSweepCycle() {
 }
 
 func (sound *sound) sweepTargetInRange() bool {
-	return sound.SweepTargetPeriod <= 0x7ff && sound.PeriodTimer >= 8
+	return !sound.SweepTargetPeriodOverflow && sound.PeriodTimer >= 8
 }
 
 func (sound *sound) updateSweepTargetPeriod() {
@@ -471,7 +472,9 @@ func (sound *sound) updateSweepTargetPeriod() {
 			periodDelta = -periodDelta
 		}
 	}
-	sound.SweepTargetPeriod = uint16(int(sound.PeriodTimer)+periodDelta) & 0x7ff
+	sum := int(sound.PeriodTimer) + periodDelta
+	sound.SweepTargetPeriodOverflow = sum > 0x7ff
+	sound.SweepTargetPeriod = uint16(sum) & 0x7ff
 }
 
 func (sound *sound) runTriangleLengthCycle() {

@@ -29,8 +29,14 @@ func makeMMC(cartInfo *CartInfo) mmc {
 		return &mapper004{}
 	case 7:
 		return &mapper007{}
+	case 31:
+		return &mapper031{
+			VramMirroring: cartInfo.GetMirrorInfo(),
+			IsChrRAM:      cartInfo.IsChrRAM(),
+		}
 	default:
-		panic(fmt.Sprintf("makeMMC: unimplemented mapper number %v", mapperNum))
+		stepErr(fmt.Sprintf("makeMMC: unimplemented mapper number %v", mapperNum))
+		panic("unreachable code")
 	}
 }
 
@@ -853,5 +859,85 @@ func (m *mapper007) WriteVRAM(mem *mem, addr uint16, val byte) {
 		}
 	default:
 		stepErr(fmt.Sprintf("mapper007: unimplemented vram access: write(%04x, %02x)", addr, val))
+	}
+}
+
+type mapper031 struct {
+	VramMirroring MirrorInfo
+	IsChrRAM      bool
+
+	bankNumSlots [8]int
+}
+
+func (m *mapper031) Init(mem *mem) {
+	m.bankNumSlots[7] = len(mem.PrgROM)/(4*1024) - 1
+}
+
+func (m *mapper031) RunCycle(cs *cpuState) {}
+
+func (m *mapper031) Read(mem *mem, addr uint16) byte {
+	if addr >= 0x6000 && addr < 0x8000 {
+		// no prg RAM in this mapper
+		return 0xff
+	}
+	if addr >= 0x8000 {
+		slotNum := (addr - 0x8000) >> 12
+		offset := m.bankNumSlots[slotNum] * (4 * 1024)
+		strippedAddr := int(addr - 0x8000 - (0x1000 * slotNum))
+		realAddr := offset + strippedAddr
+		return mem.PrgROM[realAddr]
+	}
+	return 0xff
+}
+
+func (m *mapper031) Write(mem *mem, addr uint16, val byte) {
+	if addr >= 0x5000 && addr < 0x6000 {
+		m.bankNumSlots[addr&0x07] = int(val)
+		m.bankNumSlots[addr&0x07] &= len(mem.PrgROM)/(4*1024) - 1
+	}
+	if addr >= 0x6000 && addr < 0x8000 {
+		// no prg RAM in this mapper
+	}
+}
+
+func (m *mapper031) ReadVRAM(mem *mem, addr uint16) byte {
+	var val byte
+	switch {
+	case addr < 0x2000:
+		val = mem.ChrROM[addr]
+	case addr >= 0x2000 && addr < 0x3000:
+		var realAddr uint16
+		if m.VramMirroring == VerticalMirroring {
+			realAddr = vertMirrorVRAMAddr(addr)
+		} else if m.VramMirroring == HorizontalMirroring {
+			realAddr = horizMirrorVRAMAddr(addr)
+		} else {
+			stepErr(fmt.Sprintf("mapper031: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
+		}
+		val = mem.InternalVRAM[realAddr]
+	default:
+		stepErr(fmt.Sprintf("mapper031: unimplemented vram access: read(%04x, %02x)", addr, val))
+	}
+	return val
+}
+
+func (m *mapper031) WriteVRAM(mem *mem, addr uint16, val byte) {
+	switch {
+	case addr < 0x2000:
+		if m.IsChrRAM {
+			mem.ChrROM[addr] = val
+		}
+	case addr >= 0x2000 && addr < 0x3000:
+		var realAddr uint16
+		if m.VramMirroring == VerticalMirroring {
+			realAddr = vertMirrorVRAMAddr(addr)
+		} else if m.VramMirroring == HorizontalMirroring {
+			realAddr = horizMirrorVRAMAddr(addr)
+		} else {
+			stepErr(fmt.Sprintf("mapper031: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
+		}
+		mem.InternalVRAM[realAddr] = val
+	default:
+		stepErr(fmt.Sprintf("mapper031: unimplemented vram access: write(%04x, %02x)", addr, val))
 	}
 }

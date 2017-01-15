@@ -76,6 +76,7 @@ func (cs *cpuState) runCycles(cycles uint) {
 		if cs.Cycles&0x01 == 0x01 {
 			cs.APU.runCycle(cs)
 		}
+		cs.Mem.MMC.RunCycle(cs)
 		cs.Cycles++
 	}
 }

@@ -25,6 +25,8 @@ func makeMMC(cartInfo *CartInfo) mmc {
 			VramMirroring: cartInfo.GetMirrorInfo(),
 			IsChrRAM:      cartInfo.IsChrRAM(),
 		}
+	case 4:
+		return &mapper004{}
 	default:
 		panic(fmt.Sprintf("makeMMC: unimplemented mapper number %v", mapperNum))
 	}
@@ -36,6 +38,7 @@ type mmc interface {
 	Write(mem *mem, addr uint16, val byte)
 	ReadVRAM(mem *mem, addr uint16) byte
 	WriteVRAM(mem *mem, addr uint16, val byte)
+	RunCycle(cpu *cpuState)
 }
 
 func vertMirrorVRAMAddr(addr uint16) uint16 {
@@ -60,7 +63,8 @@ type mapper000 struct {
 	IsChrRAM      bool
 }
 
-func (m *mapper000) Init(mem *mem) {}
+func (m *mapper000) Init(mem *mem)         {}
+func (m *mapper000) RunCycle(cs *cpuState) {}
 
 func (m *mapper000) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
@@ -158,6 +162,7 @@ const (
 func (m *mapper001) Init(mem *mem) {
 	m.PrgBankMode = lastBankFixed
 }
+func (m *mapper001) RunCycle(cs *cpuState) {}
 
 func (m *mapper001) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
@@ -320,7 +325,8 @@ type mapper002 struct {
 	IsChrRAM      bool
 }
 
-func (m *mapper002) Init(mem *mem) {}
+func (m *mapper002) Init(mem *mem)         {}
+func (m *mapper002) RunCycle(cs *cpuState) {}
 
 func (m *mapper002) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
@@ -395,6 +401,8 @@ type mapper003 struct {
 
 func (m *mapper003) Init(mem *mem) {}
 
+func (m *mapper003) RunCycle(cs *cpuState) {}
+
 func (m *mapper003) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
 		// will crash if no RAM, but should be fine
@@ -415,6 +423,7 @@ func (m *mapper003) Write(mem *mem, addr uint16, val byte) {
 	}
 	if addr >= 0x8000 {
 		m.ChrBankNumber = int(val)
+		m.ChrBankNumber &= (len(mem.ChrROM) / (8 * 1024)) - 1
 	}
 }
 
@@ -459,5 +468,298 @@ func (m *mapper003) WriteVRAM(mem *mem, addr uint16, val byte) {
 		mem.InternalVRAM[realAddr] = val
 	default:
 		stepErr(fmt.Sprintf("mapper003: unimplemented vram access: write(%04x, %02x)", addr, val))
+	}
+}
+
+type mapper004 struct {
+	VramMirroring MirrorInfo
+
+	BankWriteSelector byte
+
+	PrgLowerBankIsLocked bool
+
+	PrgBank0Number int
+	PrgBank1Number int
+
+	ChrUpperBanksAreBigger bool
+
+	ChrBank0Number int
+	ChrBank1Number int
+	ChrBank2Number int
+	ChrBank3Number int
+	ChrBank4Number int
+	ChrBank5Number int
+
+	IRQLastPPUCycles          int // NOTE: if accuracy demands, change this to track ppu.AddrReg bit 12
+	IRQCounter                byte
+	IRQCounterReloadValue     byte
+	IRQCounterReloadRequested bool
+	IRQRequested              bool
+	IRQEnabled                bool
+}
+
+func (m *mapper004) Init(mem *mem) {}
+
+func (m *mapper004) RunCycle(cs *cpuState) {
+	endOfScanline := 260
+	isRendering := (cs.PPU.ShowBG || cs.PPU.ShowSprites) && cs.PPU.LineY >= 0 && cs.PPU.LineY < 240
+	if isRendering && m.IRQLastPPUCycles < endOfScanline && cs.PPU.PPUCyclesSinceYInc >= endOfScanline {
+		if m.IRQCounter == 0 {
+			if m.IRQEnabled {
+				cs.IRQ = true
+			}
+		}
+		if m.IRQCounter == 0 || m.IRQCounterReloadRequested {
+			m.IRQCounterReloadRequested = false
+			m.IRQCounter = m.IRQCounterReloadValue
+		} else {
+			m.IRQCounter--
+		}
+	}
+	m.IRQLastPPUCycles = cs.PPU.PPUCyclesSinceYInc
+}
+
+func (m *mapper004) Read(mem *mem, addr uint16) byte {
+	if addr >= 0x6000 && addr < 0x8000 {
+		return mem.PrgRAM[(int(addr)-0x6000)&(len(mem.PrgRAM)-1)]
+	}
+	if addr >= 0x8000 && addr < 0xa000 {
+		if m.PrgLowerBankIsLocked {
+			offset := len(mem.PrgROM) - 2*8*1024 // second to last bank
+			return mem.PrgROM[offset+(int(addr)-0x8000)]
+		}
+		return mem.PrgROM[1024*8*m.PrgBank0Number+(int(addr)-0x8000)]
+	}
+	if addr >= 0xa000 && addr < 0xc000 {
+		return mem.PrgROM[1024*8*m.PrgBank1Number+(int(addr)-0xa000)]
+	}
+	if addr >= 0xc000 && addr < 0xe000 {
+		if m.PrgLowerBankIsLocked {
+			return mem.PrgROM[1024*8*m.PrgBank0Number+(int(addr)-0xc000)]
+		}
+		offset := len(mem.PrgROM) - 2*8*1024 // second to last bank
+		return mem.PrgROM[offset+(int(addr)-0xc000)]
+	}
+	// addr > 0xe000
+	offset := len(mem.PrgROM) - 8*1024 // last bank
+	return mem.PrgROM[offset+(int(addr)-0xe000)]
+}
+
+func (m *mapper004) Write(mem *mem, addr uint16, val byte) {
+	if addr >= 0x6000 && addr < 0x8000 {
+		realAddr := (int(addr) - 0x6000) & (len(mem.PrgRAM) - 1)
+		if realAddr < len(mem.PrgRAM)-1 {
+			mem.PrgRAM[realAddr] = val
+		}
+	}
+	if addr >= 0x8000 && addr < 0xa000 {
+		if addr&0x01 == 0 {
+			m.ChrUpperBanksAreBigger = val&0x80 == 0x80
+			m.PrgLowerBankIsLocked = val&0x40 == 0x40
+			// MM6 ram enable bit here, but let's ignore it for easier compat
+			m.BankWriteSelector = val & 0x07
+		} else {
+			bankNumReg := []*int{
+				&m.ChrBank0Number,
+				&m.ChrBank1Number,
+				&m.ChrBank2Number,
+				&m.ChrBank3Number,
+				&m.ChrBank4Number,
+				&m.ChrBank5Number,
+				&m.PrgBank0Number,
+				&m.PrgBank1Number,
+			}[m.BankWriteSelector]
+			*bankNumReg = int(val)
+		}
+	}
+	if addr >= 0xa000 && addr < 0xc000 {
+		if addr&0x01 == 0 {
+			if val&0x01 == 0 {
+				m.VramMirroring = VerticalMirroring
+			} else {
+				m.VramMirroring = HorizontalMirroring
+			}
+		} else {
+			// ram protect; do nothing to improve mmc3/mmc6 compat
+		}
+	}
+	if addr >= 0xc000 && addr < 0xe000 {
+		if addr&0x01 == 0 {
+			m.IRQCounterReloadValue = val
+		} else {
+			m.IRQCounterReloadRequested = true
+		}
+	}
+	if addr >= 0xe000 {
+		if addr&0x01 == 0 {
+			m.IRQRequested = false
+			m.IRQEnabled = false
+		} else {
+			m.IRQEnabled = true
+		}
+	}
+}
+
+func (m *mapper004) ReadVRAM(mem *mem, addr uint16) byte {
+	var val byte
+	switch {
+	case addr < 0x0400:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = m.ChrBank2Number * 1024
+		} else {
+			offset = (m.ChrBank0Number &^ 0x01) * 1024
+		}
+		val = mem.ChrROM[offset+int(addr)]
+	case addr >= 0x0400 && addr < 0x0800:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = m.ChrBank3Number * 1024
+		} else {
+			offset = (m.ChrBank0Number | 0x01) * 1024
+		}
+		val = mem.ChrROM[offset+int(addr-0x0400)]
+	case addr >= 0x0800 && addr < 0x0c00:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = m.ChrBank4Number * 1024
+		} else {
+			offset = (m.ChrBank1Number &^ 0x01) * 1024
+		}
+		val = mem.ChrROM[offset+int(addr-0x0800)]
+	case addr >= 0x0c00 && addr < 0x1000:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = m.ChrBank5Number * 1024
+		} else {
+			offset = (m.ChrBank1Number | 0x01) * 1024
+		}
+		val = mem.ChrROM[offset+int(addr-0x0c00)]
+	case addr >= 0x1000 && addr < 0x1400:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = (m.ChrBank0Number &^ 0x01) * 1024
+		} else {
+			offset = m.ChrBank2Number * 1024
+		}
+		val = mem.ChrROM[offset+int(addr-0x1000)]
+	case addr >= 0x1400 && addr < 0x1800:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = (m.ChrBank0Number | 0x01) * 1024
+		} else {
+			offset = m.ChrBank3Number * 1024
+		}
+		val = mem.ChrROM[offset+int(addr-0x1400)]
+	case addr >= 0x1800 && addr < 0x1c00:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = (m.ChrBank1Number &^ 0x01) * 1024
+		} else {
+			offset = m.ChrBank4Number * 1024
+		}
+		val = mem.ChrROM[offset+int(addr-0x1800)]
+	case addr >= 0x1c00 && addr < 0x2000:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = (m.ChrBank1Number | 0x01) * 1024
+		} else {
+			offset = m.ChrBank5Number * 1024
+		}
+		val = mem.ChrROM[offset+int(addr-0x1c00)]
+	case addr >= 0x2000 && addr < 0x3000:
+		var realAddr uint16
+		if m.VramMirroring == VerticalMirroring {
+			realAddr = vertMirrorVRAMAddr(addr)
+		} else if m.VramMirroring == HorizontalMirroring {
+			realAddr = horizMirrorVRAMAddr(addr)
+		} else {
+			stepErr(fmt.Sprintf("mapper004: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
+		}
+		val = mem.InternalVRAM[realAddr]
+	default:
+		stepErr(fmt.Sprintf("mapper004: unimplemented vram access: read(%04x, %02x)", addr, val))
+	}
+	return val
+}
+
+func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
+	switch {
+	case addr < 0x0400:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = m.ChrBank2Number * 1024
+		} else {
+			offset = (m.ChrBank0Number &^ 0x01) * 1024
+		}
+		mem.ChrROM[offset+int(addr)] = val
+	case addr >= 0x0400 && addr < 0x0800:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = m.ChrBank3Number * 1024
+		} else {
+			offset = (m.ChrBank0Number | 0x01) * 1024
+		}
+		mem.ChrROM[offset+int(addr-0x0400)] = val
+	case addr >= 0x0800 && addr < 0x0c00:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = m.ChrBank4Number * 1024
+		} else {
+			offset = (m.ChrBank1Number &^ 0x01) * 1024
+		}
+		mem.ChrROM[offset+int(addr-0x0800)] = val
+	case addr >= 0x0c00 && addr < 0x1000:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = m.ChrBank5Number * 1024
+		} else {
+			offset = (m.ChrBank1Number | 0x01) * 1024
+		}
+		mem.ChrROM[offset+int(addr-0x0c00)] = val
+	case addr >= 0x1000 && addr < 0x1400:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = (m.ChrBank0Number &^ 0x01) * 1024
+		} else {
+			offset = m.ChrBank2Number * 1024
+		}
+		mem.ChrROM[offset+int(addr-0x1000)] = val
+	case addr >= 0x1400 && addr < 0x1800:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = (m.ChrBank0Number | 0x01) * 1024
+		} else {
+			offset = m.ChrBank3Number * 1024
+		}
+		mem.ChrROM[offset+int(addr-0x1400)] = val
+	case addr >= 0x1800 && addr < 0x1c00:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = (m.ChrBank1Number &^ 0x01) * 1024
+		} else {
+			offset = m.ChrBank4Number * 1024
+		}
+		mem.ChrROM[offset+int(addr-0x1800)] = val
+	case addr >= 0x1c00 && addr < 0x2000:
+		var offset int
+		if m.ChrUpperBanksAreBigger {
+			offset = (m.ChrBank1Number | 0x01) * 1024
+		} else {
+			offset = m.ChrBank5Number * 1024
+		}
+		mem.ChrROM[offset+int(addr-0x1c00)] = val
+	case addr >= 0x2000 && addr < 0x3000:
+		var realAddr uint16
+		if m.VramMirroring == VerticalMirroring {
+			realAddr = vertMirrorVRAMAddr(addr)
+		} else if m.VramMirroring == HorizontalMirroring {
+			realAddr = horizMirrorVRAMAddr(addr)
+		} else {
+			stepErr(fmt.Sprintf("mapper004: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
+		}
+		mem.InternalVRAM[realAddr] = val
+	default:
+		stepErr(fmt.Sprintf("mapper004: unimplemented vram access: write(%04x, %02x)", addr, val))
 	}
 }

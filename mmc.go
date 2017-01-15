@@ -893,7 +893,6 @@ func (m *mapper031) Read(mem *mem, addr uint16) byte {
 func (m *mapper031) Write(mem *mem, addr uint16, val byte) {
 	if addr >= 0x5000 && addr < 0x6000 {
 		m.bankNumSlots[addr&0x07] = int(val)
-		m.bankNumSlots[addr&0x07] &= len(mem.PrgROM)/(4*1024) - 1
 	}
 	if addr >= 0x6000 && addr < 0x8000 {
 		// no prg RAM in this mapper

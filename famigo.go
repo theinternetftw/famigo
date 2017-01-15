@@ -207,10 +207,14 @@ func newState(romBytes []byte) *cpuState {
 		cs.Mem.ChrROM = make([]byte, cartInfo.GetRAMSizeChr())
 	}
 
-	cs.Mem.MMC.Init(&cs.Mem)
-	cs.APU.init()
+	cs.init()
 
 	return &cs
+}
+
+func (cs *cpuState) init() {
+	cs.Mem.MMC.Init(&cs.Mem)
+	cs.APU.init()
 }
 
 // Joypad represents the buttons on a gamepad

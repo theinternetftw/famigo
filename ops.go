@@ -99,7 +99,7 @@ const crashOnUndocumentOpcode = false
 
 func (cs *cpuState) undocumentedOpcode() {
 	if crashOnUndocumentOpcode {
-		stepErr(fmt.Sprintf("Undocumented opcode 0x%02x at 0x%04x", cs.read(cs.PC), cs.PC))
+		emuErr(fmt.Sprintf("Undocumented opcode 0x%02x at 0x%04x", cs.read(cs.PC), cs.PC))
 	}
 }
 
@@ -595,7 +595,7 @@ func (cs *cpuState) stepOpcode() {
 		cs.storeOp(7, 3, addr, cs.read(addr)+1, cs.setZeroNeg)
 
 	default:
-		stepErr(fmt.Sprintf("unimplemented opcode 0x%02x", opcode))
+		emuErr(fmt.Sprintf("unimplemented opcode 0x%02x", opcode))
 	}
 }
 

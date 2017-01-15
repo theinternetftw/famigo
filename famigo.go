@@ -225,7 +225,7 @@ type Joypad struct {
 	B     bool
 }
 
-func stepErr(args ...interface{}) {
+func emuErr(args ...interface{}) {
 	fmt.Println(args...)
 	os.Exit(1)
 }

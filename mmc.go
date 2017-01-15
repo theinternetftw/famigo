@@ -35,7 +35,7 @@ func makeMMC(cartInfo *CartInfo) mmc {
 			IsChrRAM:      cartInfo.IsChrRAM(),
 		}
 	default:
-		stepErr(fmt.Sprintf("makeMMC: unimplemented mapper number %v", mapperNum))
+		emuErr(fmt.Sprintf("makeMMC: unimplemented mapper number %v", mapperNum))
 		panic("unreachable code")
 	}
 }
@@ -109,11 +109,11 @@ func (m *mapper000) ReadVRAM(mem *mem, addr uint16) byte {
 		} else if m.VramMirroring == HorizontalMirroring {
 			realAddr = horizMirrorVRAMAddr(addr)
 		} else {
-			stepErr(fmt.Sprintf("mapper000: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
+			emuErr(fmt.Sprintf("mapper000: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
 		}
 		val = mem.InternalVRAM[realAddr]
 	default:
-		stepErr(fmt.Sprintf("mapper000: unimplemented vram access: read(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper000: unimplemented vram access: read(%04x, %02x)", addr, val))
 	}
 	return val
 }
@@ -131,11 +131,11 @@ func (m *mapper000) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else if m.VramMirroring == HorizontalMirroring {
 			realAddr = horizMirrorVRAMAddr(addr)
 		} else {
-			stepErr(fmt.Sprintf("mapper000: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
+			emuErr(fmt.Sprintf("mapper000: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
 		}
 		mem.InternalVRAM[realAddr] = val
 	default:
-		stepErr(fmt.Sprintf("mapper000: unimplemented vram access: write(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper000: unimplemented vram access: write(%04x, %02x)", addr, val))
 	}
 }
 
@@ -236,7 +236,7 @@ func (m *mapper001) writeReg(mem *mem, addr uint16, val byte) {
 		case 3:
 			m.VramMirroring = HorizontalMirroring
 		default:
-			stepErr(fmt.Sprintf("mapper001: mirroring style not yet implemented: %v", val&0x03))
+			emuErr(fmt.Sprintf("mapper001: mirroring style not yet implemented: %v", val&0x03))
 		}
 
 		switch (val >> 2) & 0x03 {
@@ -302,10 +302,10 @@ func (m *mapper001) ReadVRAM(mem *mem, addr uint16) byte {
 		case HorizontalMirroring:
 			val = mem.InternalVRAM[horizMirrorVRAMAddr(addr)]
 		default:
-			stepErr(fmt.Sprintf("mapper001: unimplemented vram mirroring %v: read(%04x)", m.VramMirroring, addr))
+			emuErr(fmt.Sprintf("mapper001: unimplemented vram mirroring %v: read(%04x)", m.VramMirroring, addr))
 		}
 	default:
-		stepErr(fmt.Sprintf("mapper001: unimplemented vram access: read(%04x)", addr))
+		emuErr(fmt.Sprintf("mapper001: unimplemented vram access: read(%04x)", addr))
 	}
 	return val
 }
@@ -328,10 +328,10 @@ func (m *mapper001) WriteVRAM(mem *mem, addr uint16, val byte) {
 		case HorizontalMirroring:
 			mem.InternalVRAM[horizMirrorVRAMAddr(addr)] = val
 		default:
-			stepErr(fmt.Sprintf("mapper001: unimplemented vram mirroring %v: write(%04x, %02x)", m.VramMirroring, addr, val))
+			emuErr(fmt.Sprintf("mapper001: unimplemented vram mirroring %v: write(%04x, %02x)", m.VramMirroring, addr, val))
 		}
 	default:
-		stepErr(fmt.Sprintf("mapper001: unimplemented vram access: write(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper001: unimplemented vram access: write(%04x, %02x)", addr, val))
 	}
 }
 
@@ -380,11 +380,11 @@ func (m *mapper002) ReadVRAM(mem *mem, addr uint16) byte {
 		} else if m.VramMirroring == HorizontalMirroring {
 			realAddr = horizMirrorVRAMAddr(addr)
 		} else {
-			stepErr(fmt.Sprintf("mapper002: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
+			emuErr(fmt.Sprintf("mapper002: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
 		}
 		val = mem.InternalVRAM[realAddr]
 	default:
-		stepErr(fmt.Sprintf("mapper002: unimplemented vram access: read(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper002: unimplemented vram access: read(%04x, %02x)", addr, val))
 	}
 	return val
 }
@@ -402,11 +402,11 @@ func (m *mapper002) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else if m.VramMirroring == HorizontalMirroring {
 			realAddr = horizMirrorVRAMAddr(addr)
 		} else {
-			stepErr(fmt.Sprintf("mapper002: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
+			emuErr(fmt.Sprintf("mapper002: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
 		}
 		mem.InternalVRAM[realAddr] = val
 	default:
-		stepErr(fmt.Sprintf("mapper002: unimplemented vram access: write(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper002: unimplemented vram access: write(%04x, %02x)", addr, val))
 	}
 }
 
@@ -457,11 +457,11 @@ func (m *mapper003) ReadVRAM(mem *mem, addr uint16) byte {
 		} else if m.VramMirroring == HorizontalMirroring {
 			realAddr = horizMirrorVRAMAddr(addr)
 		} else {
-			stepErr(fmt.Sprintf("mapper003: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
+			emuErr(fmt.Sprintf("mapper003: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
 		}
 		val = mem.InternalVRAM[realAddr]
 	default:
-		stepErr(fmt.Sprintf("mapper003: unimplemented vram access: read(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper003: unimplemented vram access: read(%04x, %02x)", addr, val))
 	}
 	return val
 }
@@ -480,11 +480,11 @@ func (m *mapper003) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else if m.VramMirroring == HorizontalMirroring {
 			realAddr = horizMirrorVRAMAddr(addr)
 		} else {
-			stepErr(fmt.Sprintf("mapper003: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
+			emuErr(fmt.Sprintf("mapper003: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
 		}
 		mem.InternalVRAM[realAddr] = val
 	default:
-		stepErr(fmt.Sprintf("mapper003: unimplemented vram access: write(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper003: unimplemented vram access: write(%04x, %02x)", addr, val))
 	}
 }
 
@@ -696,11 +696,11 @@ func (m *mapper004) ReadVRAM(mem *mem, addr uint16) byte {
 		} else if m.VramMirroring == HorizontalMirroring {
 			realAddr = horizMirrorVRAMAddr(addr)
 		} else {
-			stepErr(fmt.Sprintf("mapper004: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
+			emuErr(fmt.Sprintf("mapper004: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
 		}
 		val = mem.InternalVRAM[realAddr]
 	default:
-		stepErr(fmt.Sprintf("mapper004: unimplemented vram access: read(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper004: unimplemented vram access: read(%04x, %02x)", addr, val))
 	}
 	return val
 }
@@ -778,11 +778,11 @@ func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else if m.VramMirroring == HorizontalMirroring {
 			realAddr = horizMirrorVRAMAddr(addr)
 		} else {
-			stepErr(fmt.Sprintf("mapper004: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
+			emuErr(fmt.Sprintf("mapper004: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
 		}
 		mem.InternalVRAM[realAddr] = val
 	default:
-		stepErr(fmt.Sprintf("mapper004: unimplemented vram access: write(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper004: unimplemented vram access: write(%04x, %02x)", addr, val))
 	}
 }
 
@@ -836,10 +836,10 @@ func (m *mapper007) ReadVRAM(mem *mem, addr uint16) byte {
 		case OneScreenUpperMirroring:
 			val = mem.InternalVRAM[oneScreenUpperVRAMAddr(addr)]
 		default:
-			stepErr(fmt.Sprintf("mapper007: unimplemented vram mirroring %v: read(%04x)", m.VramMirroring, addr))
+			emuErr(fmt.Sprintf("mapper007: unimplemented vram mirroring %v: read(%04x)", m.VramMirroring, addr))
 		}
 	default:
-		stepErr(fmt.Sprintf("mapper007: unimplemented vram access: read(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper007: unimplemented vram access: read(%04x, %02x)", addr, val))
 	}
 	return val
 }
@@ -855,10 +855,10 @@ func (m *mapper007) WriteVRAM(mem *mem, addr uint16, val byte) {
 		case OneScreenUpperMirroring:
 			mem.InternalVRAM[oneScreenUpperVRAMAddr(addr)] = val
 		default:
-			stepErr(fmt.Sprintf("mapper007: unimplemented vram mirroring %v: write(%04x, %02x)", m.VramMirroring, addr, val))
+			emuErr(fmt.Sprintf("mapper007: unimplemented vram mirroring %v: write(%04x, %02x)", m.VramMirroring, addr, val))
 		}
 	default:
-		stepErr(fmt.Sprintf("mapper007: unimplemented vram access: write(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper007: unimplemented vram access: write(%04x, %02x)", addr, val))
 	}
 }
 
@@ -912,11 +912,11 @@ func (m *mapper031) ReadVRAM(mem *mem, addr uint16) byte {
 		} else if m.VramMirroring == HorizontalMirroring {
 			realAddr = horizMirrorVRAMAddr(addr)
 		} else {
-			stepErr(fmt.Sprintf("mapper031: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
+			emuErr(fmt.Sprintf("mapper031: unimplemented vram mirroring: %v at read(%04x, %02x)", m.VramMirroring, addr, val))
 		}
 		val = mem.InternalVRAM[realAddr]
 	default:
-		stepErr(fmt.Sprintf("mapper031: unimplemented vram access: read(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper031: unimplemented vram access: read(%04x, %02x)", addr, val))
 	}
 	return val
 }
@@ -934,10 +934,10 @@ func (m *mapper031) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else if m.VramMirroring == HorizontalMirroring {
 			realAddr = horizMirrorVRAMAddr(addr)
 		} else {
-			stepErr(fmt.Sprintf("mapper031: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
+			emuErr(fmt.Sprintf("mapper031: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
 		}
 		mem.InternalVRAM[realAddr] = val
 	default:
-		stepErr(fmt.Sprintf("mapper031: unimplemented vram access: write(%04x, %02x)", addr, val))
+		emuErr(fmt.Sprintf("mapper031: unimplemented vram access: write(%04x, %02x)", addr, val))
 	}
 }

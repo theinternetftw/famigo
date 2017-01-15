@@ -29,13 +29,13 @@ func (cs *cpuState) read(addr uint16) byte {
 	case addr == 0x4017:
 		val = cs.readJoypadReg2()
 	case addr >= 0x4000 && addr < 0x4018:
-		stepErr(fmt.Sprintf("APU/IO not implemented, read at %04x", addr))
+		emuErr(fmt.Sprintf("APU/IO not implemented, read at %04x", addr))
 	case addr >= 0x4018 && addr < 0x4020:
-		stepErr(fmt.Sprintf("CPU test mode not implemented, read at %04x", addr))
+		emuErr(fmt.Sprintf("CPU test mode not implemented, read at %04x", addr))
 	case addr >= 0x4020:
 		val = cs.Mem.MMC.Read(&cs.Mem, addr)
 	default:
-		stepErr(fmt.Sprintf("unimplemented read: %v", addr))
+		emuErr(fmt.Sprintf("unimplemented read: %v", addr))
 	}
 	if showMemAccesses {
 		fmt.Printf("read(0x%04x) = 0x%02x\n", addr, val)
@@ -112,13 +112,13 @@ func (cs *cpuState) write(addr uint16, val byte) {
 	case addr == 0x4017:
 		cs.APU.writeFrameCounterReg(val)
 	case addr >= 0x4000 && addr < 0x4018:
-		stepErr(fmt.Sprintf("APU/IO not implemented, write(0x%04x, 0x%02x)", addr, val))
+		emuErr(fmt.Sprintf("APU/IO not implemented, write(0x%04x, 0x%02x)", addr, val))
 	case addr >= 0x4018 && addr < 0x4020:
-		stepErr(fmt.Sprintf("CPU test not implemented, write(0x%04x, 0x%02x)", addr, val))
+		emuErr(fmt.Sprintf("CPU test not implemented, write(0x%04x, 0x%02x)", addr, val))
 	case addr >= 0x4020:
 		cs.Mem.MMC.Write(&cs.Mem, addr, val)
 	default:
-		stepErr(fmt.Sprintf("unimplemented: write(0x%04x, 0x%02x)", addr, val))
+		emuErr(fmt.Sprintf("unimplemented: write(0x%04x, 0x%02x)", addr, val))
 	}
 	if showMemAccesses {
 		fmt.Printf("write(0x%04x, 0x%02x)\n", addr, val)
@@ -145,7 +145,7 @@ func (cs *cpuState) ppuRead(addr uint16) byte {
 	case 0x07:
 		return cs.PPU.readDataReg(&cs.Mem)
 	default:
-		stepErr(fmt.Sprintf("PPU not implemented, read at %04x", realAddr))
+		emuErr(fmt.Sprintf("PPU not implemented, read at %04x", realAddr))
 	}
 	panic("never get here")
 }
@@ -169,7 +169,7 @@ func (cs *cpuState) ppuWrite(addr uint16, val byte) {
 	case 0x07:
 		cs.PPU.writeDataReg(&cs.Mem, val)
 	default:
-		stepErr(fmt.Sprintf("PPU not implemented, write(%04x, %02x)", realAddr, val))
+		emuErr(fmt.Sprintf("PPU not implemented, write(%04x, %02x)", realAddr, val))
 	}
 }
 

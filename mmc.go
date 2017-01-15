@@ -27,6 +27,8 @@ func makeMMC(cartInfo *CartInfo) mmc {
 		}
 	case 4:
 		return &mapper004{}
+	case 7:
+		return &mapper007{}
 	default:
 		panic(fmt.Sprintf("makeMMC: unimplemented mapper number %v", mapperNum))
 	}
@@ -288,7 +290,7 @@ func (m *mapper001) ReadVRAM(mem *mem, addr uint16) byte {
 		case OneScreenLowerMirroring:
 			val = mem.InternalVRAM[oneScreenLowerVRAMAddr(addr)]
 		case OneScreenUpperMirroring:
-			val = mem.InternalVRAM[oneScreenLowerVRAMAddr(addr)]
+			val = mem.InternalVRAM[oneScreenUpperVRAMAddr(addr)]
 		case VerticalMirroring:
 			val = mem.InternalVRAM[vertMirrorVRAMAddr(addr)]
 		case HorizontalMirroring:
@@ -314,7 +316,7 @@ func (m *mapper001) WriteVRAM(mem *mem, addr uint16, val byte) {
 		case OneScreenLowerMirroring:
 			mem.InternalVRAM[oneScreenLowerVRAMAddr(addr)] = val
 		case OneScreenUpperMirroring:
-			mem.InternalVRAM[oneScreenLowerVRAMAddr(addr)] = val
+			mem.InternalVRAM[oneScreenUpperVRAMAddr(addr)] = val
 		case VerticalMirroring:
 			mem.InternalVRAM[vertMirrorVRAMAddr(addr)] = val
 		case HorizontalMirroring:
@@ -775,5 +777,81 @@ func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
 		mem.InternalVRAM[realAddr] = val
 	default:
 		stepErr(fmt.Sprintf("mapper004: unimplemented vram access: write(%04x, %02x)", addr, val))
+	}
+}
+
+type mapper007 struct {
+	VramMirroring MirrorInfo
+	PrgBankNumber int
+}
+
+func (m *mapper007) Init(mem *mem) {
+	m.VramMirroring = OneScreenLowerMirroring
+}
+
+func (m *mapper007) RunCycle(cs *cpuState) {}
+
+func (m *mapper007) Read(mem *mem, addr uint16) byte {
+	if addr >= 0x6000 && addr < 0x8000 {
+		// no RAM in this mapper
+		return 0xff
+	}
+	if addr >= 0x8000 {
+		offset := m.PrgBankNumber * 32 * 1024
+		return mem.PrgROM[offset+int(addr-0x8000)]
+	}
+	panic("impossible case")
+}
+
+func (m *mapper007) Write(mem *mem, addr uint16, val byte) {
+	if addr >= 0x6000 && addr < 0x8000 {
+		// no RAM in this mapper
+	}
+	if addr >= 0x8000 {
+		m.PrgBankNumber = int(val & 0x07)
+		m.PrgBankNumber &= len(mem.PrgROM)/(32*1024) - 1
+		if val&0x10 == 0x10 {
+			m.VramMirroring = OneScreenUpperMirroring
+		} else {
+			m.VramMirroring = OneScreenLowerMirroring
+		}
+	}
+}
+
+func (m *mapper007) ReadVRAM(mem *mem, addr uint16) byte {
+	var val byte
+	switch {
+	case addr < 0x2000:
+		val = mem.ChrROM[addr]
+	case addr >= 0x2000 && addr < 0x3000:
+		switch m.VramMirroring {
+		case OneScreenLowerMirroring:
+			val = mem.InternalVRAM[oneScreenLowerVRAMAddr(addr)]
+		case OneScreenUpperMirroring:
+			val = mem.InternalVRAM[oneScreenUpperVRAMAddr(addr)]
+		default:
+			stepErr(fmt.Sprintf("mapper007: unimplemented vram mirroring %v: read(%04x)", m.VramMirroring, addr))
+		}
+	default:
+		stepErr(fmt.Sprintf("mapper007: unimplemented vram access: read(%04x, %02x)", addr, val))
+	}
+	return val
+}
+
+func (m *mapper007) WriteVRAM(mem *mem, addr uint16, val byte) {
+	switch {
+	case addr < 0x2000:
+		mem.ChrROM[addr] = val
+	case addr >= 0x2000 && addr < 0x3000:
+		switch m.VramMirroring {
+		case OneScreenLowerMirroring:
+			mem.InternalVRAM[oneScreenLowerVRAMAddr(addr)] = val
+		case OneScreenUpperMirroring:
+			mem.InternalVRAM[oneScreenUpperVRAMAddr(addr)] = val
+		default:
+			stepErr(fmt.Sprintf("mapper007: unimplemented vram mirroring %v: write(%04x, %02x)", m.VramMirroring, addr, val))
+		}
+	default:
+		stepErr(fmt.Sprintf("mapper007: unimplemented vram access: write(%04x, %02x)", addr, val))
 	}
 }

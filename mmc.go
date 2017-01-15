@@ -570,6 +570,11 @@ func (m *mapper004) Write(mem *mem, addr uint16, val byte) {
 				&m.PrgBank1Number,
 			}[m.BankWriteSelector]
 			*bankNumReg = int(val)
+			if m.BankWriteSelector < 6 {
+				*bankNumReg &= len(mem.ChrROM)/1024 - 1
+			} else {
+				*bankNumReg &= len(mem.PrgROM)/(8*1024) - 1
+			}
 		}
 	}
 	if addr >= 0xa000 && addr < 0xc000 {

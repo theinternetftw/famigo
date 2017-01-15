@@ -1,11 +1,11 @@
 package famigo
 
 type apu struct {
-	FrameCounterInterruptInhibit bool
-	FrameCounterSequencerMode    byte
-	FrameInterruptRequested      bool
-	FrameCounterManualTrigger    bool
-	FrameCounter                 uint64
+	FrameCounterInterruptInhibit   bool
+	FrameCounterSequencerMode      byte
+	FrameCounterInterruptRequested bool
+	FrameCounterManualTrigger      bool
+	FrameCounter                   uint64
 
 	buffer apuCircleBuf
 
@@ -91,7 +91,7 @@ func (apu *apu) runFrameCounterCycle() {
 		}
 		if c == 14914 {
 			if !apu.FrameCounterInterruptInhibit {
-				apu.FrameInterruptRequested = true
+				apu.FrameCounterInterruptRequested = true
 			}
 		}
 		if c == 14915 {
@@ -167,7 +167,7 @@ func (sound *sound) updateDMCOutput(cs *cpuState) {
 func (apu *apu) runCycle(cs *cpuState) {
 
 	apu.runFrameCounterCycle()
-	if apu.FrameInterruptRequested {
+	if apu.FrameCounterInterruptRequested {
 		cs.IRQ = true
 	}
 
@@ -557,6 +557,9 @@ func (apu *apu) writeFrameCounterReg(val byte) {
 	if apu.FrameCounterSequencerMode == 1 {
 		apu.FrameCounterManualTrigger = true
 	}
+	if apu.FrameCounterInterruptInhibit {
+		apu.FrameCounterInterruptRequested = false
+	}
 }
 
 func (sound *sound) writeDMCSampleLength(val byte) {
@@ -619,7 +622,7 @@ func (apu *apu) writeStatusReg(val byte) {
 func (apu *apu) readStatusReg() byte {
 	result := byteFromBools(
 		apu.DMC.DMCInterruptRequested,
-		apu.FrameInterruptRequested,
+		apu.FrameCounterInterruptRequested,
 		true,
 		apu.DMC.DMCSampleBytesRemaining > 0,
 		apu.Noise.LengthCounter > 0,
@@ -627,6 +630,6 @@ func (apu *apu) readStatusReg() byte {
 		apu.Pulse2.LengthCounter > 0,
 		apu.Pulse1.LengthCounter > 0,
 	)
-	apu.FrameInterruptRequested = false
+	apu.FrameCounterInterruptRequested = false
 	return result
 }

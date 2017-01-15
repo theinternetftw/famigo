@@ -294,10 +294,10 @@ func (m *mapper001) ReadVRAM(mem *mem, addr uint16) byte {
 		case HorizontalMirroring:
 			val = mem.InternalVRAM[horizMirrorVRAMAddr(addr)]
 		default:
-			stepErr(fmt.Sprintf("mapper001: unimplemented vram mirroring: read(%04x, %02x)", addr, val))
+			stepErr(fmt.Sprintf("mapper001: unimplemented vram mirroring %v: read(%04x)", m.VramMirroring, addr))
 		}
 	default:
-		stepErr(fmt.Sprintf("mapper001: unimplemented vram access: read(%04x, %02x)", addr, val))
+		stepErr(fmt.Sprintf("mapper001: unimplemented vram access: read(%04x)", addr))
 	}
 	return val
 }
@@ -310,12 +310,17 @@ func (m *mapper001) WriteVRAM(mem *mem, addr uint16, val byte) {
 			mem.ChrROM[m.getChrROMAddr(addr)] = val
 		}
 	case addr >= 0x2000 && addr < 0x3000:
-		if m.VramMirroring == VerticalMirroring {
+		switch m.VramMirroring {
+		case OneScreenLowerMirroring:
+			mem.InternalVRAM[oneScreenLowerVRAMAddr(addr)] = val
+		case OneScreenUpperMirroring:
+			mem.InternalVRAM[oneScreenLowerVRAMAddr(addr)] = val
+		case VerticalMirroring:
 			mem.InternalVRAM[vertMirrorVRAMAddr(addr)] = val
-		} else if m.VramMirroring == HorizontalMirroring {
+		case HorizontalMirroring:
 			mem.InternalVRAM[horizMirrorVRAMAddr(addr)] = val
-		} else {
-			stepErr(fmt.Sprintf("mapper001: unimplemented vram mirroring: write(%04x, %02x)", addr, val))
+		default:
+			stepErr(fmt.Sprintf("mapper001: unimplemented vram mirroring %v: write(%04x, %02x)", m.VramMirroring, addr, val))
 		}
 	default:
 		stepErr(fmt.Sprintf("mapper001: unimplemented vram access: write(%04x, %02x)", addr, val))
@@ -525,28 +530,28 @@ func (m *mapper004) RunCycle(cs *cpuState) {
 
 func (m *mapper004) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
-		return mem.PrgRAM[(int(addr)-0x6000)&(len(mem.PrgRAM)-1)]
+		return mem.PrgRAM[int(addr-0x6000)&(len(mem.PrgRAM)-1)]
 	}
 	if addr >= 0x8000 && addr < 0xa000 {
 		if m.PrgLowerBankIsLocked {
 			offset := len(mem.PrgROM) - 2*8*1024 // second to last bank
-			return mem.PrgROM[offset+(int(addr)-0x8000)]
+			return mem.PrgROM[offset+int(addr-0x8000)]
 		}
-		return mem.PrgROM[1024*8*m.PrgBank0Number+(int(addr)-0x8000)]
+		return mem.PrgROM[1024*8*m.PrgBank0Number+int(addr-0x8000)]
 	}
 	if addr >= 0xa000 && addr < 0xc000 {
-		return mem.PrgROM[1024*8*m.PrgBank1Number+(int(addr)-0xa000)]
+		return mem.PrgROM[1024*8*m.PrgBank1Number+int(addr-0xa000)]
 	}
 	if addr >= 0xc000 && addr < 0xe000 {
 		if m.PrgLowerBankIsLocked {
-			return mem.PrgROM[1024*8*m.PrgBank0Number+(int(addr)-0xc000)]
+			return mem.PrgROM[1024*8*m.PrgBank0Number+int(addr-0xc000)]
 		}
 		offset := len(mem.PrgROM) - 2*8*1024 // second to last bank
-		return mem.PrgROM[offset+(int(addr)-0xc000)]
+		return mem.PrgROM[offset+int(addr-0xc000)]
 	}
 	// addr > 0xe000
 	offset := len(mem.PrgROM) - 8*1024 // last bank
-	return mem.PrgROM[offset+(int(addr)-0xe000)]
+	return mem.PrgROM[offset+int(addr-0xe000)]
 }
 
 func (m *mapper004) Write(mem *mem, addr uint16, val byte) {

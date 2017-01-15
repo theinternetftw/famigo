@@ -204,7 +204,7 @@ func (m *mapper001) Write(mem *mem, addr uint16, val byte) {
 			m.ShiftReg |= ((val & 0x01) << 4)
 			m.ShiftRegWriteCounter++
 			if m.ShiftRegWriteCounter == 5 {
-				m.writeReg(addr, m.ShiftReg)
+				m.writeReg(mem, addr, m.ShiftReg)
 				m.ShiftRegWriteCounter = 0
 				m.ShiftReg = 0
 			} else {
@@ -214,7 +214,7 @@ func (m *mapper001) Write(mem *mem, addr uint16, val byte) {
 	}
 }
 
-func (m *mapper001) writeReg(addr uint16, val byte) {
+func (m *mapper001) writeReg(mem *mem, addr uint16, val byte) {
 	switch {
 	case addr >= 0x8000 && addr < 0xa000:
 
@@ -252,10 +252,12 @@ func (m *mapper001) writeReg(addr uint16, val byte) {
 			val &^= 0x01
 		}
 		m.ChrBank0Number = int(val)
+		m.ChrBank0Number &= len(mem.ChrROM)/(4*1024) - 1
 
 	case addr >= 0xc000 && addr < 0xe000:
 		if m.ChrBankMode == twoBanks {
 			m.ChrBank1Number = int(val)
+			m.ChrBank1Number &= len(mem.ChrROM)/(4*1024) - 1
 		}
 
 	case addr >= 0xe000:
@@ -264,6 +266,7 @@ func (m *mapper001) writeReg(addr uint16, val byte) {
 			val &^= 0x01
 		}
 		m.PrgBankNumber = int(val & 0x0f)
+		m.PrgBankNumber &= len(mem.PrgROM)/(16*1024) - 1
 	}
 }
 
@@ -348,6 +351,7 @@ func (m *mapper002) Write(mem *mem, addr uint16, val byte) {
 	}
 	if addr >= 0x8000 {
 		m.PrgBankNumber = int(val)
+		m.PrgBankNumber &= len(mem.PrgROM)/(16*1024) - 1
 	}
 }
 
@@ -423,7 +427,7 @@ func (m *mapper003) Write(mem *mem, addr uint16, val byte) {
 	}
 	if addr >= 0x8000 {
 		m.ChrBankNumber = int(val)
-		m.ChrBankNumber &= (len(mem.ChrROM) / (8 * 1024)) - 1
+		m.ChrBankNumber &= len(mem.ChrROM)/(8*1024) - 1
 	}
 }
 

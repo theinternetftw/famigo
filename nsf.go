@@ -251,6 +251,14 @@ func NewNsfPlayer(nsf []byte) Emulator {
 		mapper = &mapper000{}
 		padding := hdr.LoadAddr & 0x0fff
 		cart = append(make([]byte, padding), data...)
+
+		fmt.Printf("%04x\n", hdr.LoadAddr)
+		fmt.Println(len(data))
+		fmt.Println(len(cart))
+		for i := 0; i < 80; i++ {
+			fmt.Printf("%02x, ", cart[i])
+		}
+		fmt.Println()
 	}
 
 	var tvBit byte
@@ -377,11 +385,17 @@ func (np *nsfPlayer) Step() {
 	if !np.Paused {
 		now := time.Now()
 		if np.PC == 0x0001 {
-			if now.Sub(np.LastPlayCall).Seconds() >= np.PlayCallInterval {
+			timeLeft := np.PlayCallInterval - now.Sub(np.LastPlayCall).Seconds()
+			if timeLeft <= 0 {
 				np.LastPlayCall = now
 				np.S = 0xfd
 				np.push16(0x0000)
 				np.PC = np.Hdr.PlayAddr
+			} else {
+				toWait := time.Duration(timeLeft / 2 * 1000 * float64(time.Millisecond))
+				if toWait > time.Millisecond {
+					<-time.NewTimer(toWait).C
+				}
 			}
 		}
 		if np.PC != 0x0001 {

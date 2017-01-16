@@ -9,16 +9,20 @@ import (
 
 type nsfPlayer struct {
 	cpuState
-	Hdr              nsfHeader
-	HdrExtended      *parsedNsfe
-	PlayCallInterval float64
-	LastPlayCall     time.Time
-	CurrentSong      byte
-	TvStdBit         byte
-	Paused           bool
-	DbgTerminal      dbgTerminal
-	DbgScreen        [256 * 240 * 4]byte
-	DbgFlipRequested bool
+	Hdr                nsfHeader
+	HdrExtended        *parsedNsfe
+	PlayCallInterval   float64
+	LastPlayCall       time.Time
+	CurrentSong        byte
+	CurrentSongLen     time.Duration
+	CurrentSongFadeLen time.Duration
+	CurrentSongStart   time.Time
+	TvStdBit           byte
+	Paused             bool
+	PauseStartTime     time.Time
+	DbgTerminal        dbgTerminal
+	DbgScreen          [256 * 240 * 4]byte
+	DbgFlipRequested   bool
 }
 
 type nsfHeader struct {
@@ -45,6 +49,7 @@ type parsedNsfe struct {
 	data []byte
 	bank *bankChunk
 	plst *plstChunk
+	time *timeChunk
 	fade *fadeChunk
 	tlbl *tlblChunk
 	auth *authChunk
@@ -133,6 +138,26 @@ func parseNsfe(nsfe []byte) (parsedNsfe, error) {
 		case "NEND":
 			sawNend = true
 			break
+		case "time":
+			tChunk := timeChunk{}
+			for i := uint32(0); i < chunkHdr.ChunkLen; i += 4 {
+				var songLen int32
+				if err := readStructLE(nsfe[i:], &songLen); err != nil {
+					return parsedNsfe{}, err
+				}
+				tChunk.SongLengths = append(tChunk.SongLengths, songLen)
+			}
+			parsed.time = &tChunk
+		case "fade":
+			fChunk := fadeChunk{}
+			for i := uint32(0); i < chunkHdr.ChunkLen; i += 4 {
+				var fadeTime int32
+				if err := readStructLE(nsfe[i:], &fadeTime); err != nil {
+					return parsedNsfe{}, err
+				}
+				fChunk.FadeTimes = append(fChunk.FadeTimes, fadeTime)
+			}
+			parsed.fade = &fChunk
 		case "auth":
 			auth := authChunk{}
 			authBytes := nsfe[:chunkHdr.ChunkLen]
@@ -276,6 +301,7 @@ func NewNsfPlayer(nsf []byte) Emulator {
 		},
 		PlayCallInterval: playSpeed,
 		Hdr:              hdr,
+		HdrExtended:      &nsfe,
 		CurrentSong:      hdr.StartSong - 1,
 		TvStdBit:         tvBit,
 	}
@@ -320,6 +346,19 @@ func (np *nsfPlayer) initTune(songNum byte) {
 	for np.PC != 0x0001 {
 		np.step()
 	}
+
+	np.CurrentSongLen = 0
+	ehdr := np.HdrExtended
+	if ehdr != nil && ehdr.time != nil && int(np.CurrentSong) < len(ehdr.time.SongLengths) {
+		songLen := ehdr.time.SongLengths[np.CurrentSong]
+		if ehdr.fade != nil && int(np.CurrentSong) < len(ehdr.fade.FadeTimes) {
+			songLen += ehdr.fade.FadeTimes[np.CurrentSong]
+		}
+		if songLen >= 0 {
+			np.CurrentSongLen = time.Duration(songLen) * time.Millisecond
+		}
+	}
+	np.CurrentSongStart = time.Now()
 }
 
 func (np *nsfPlayer) updateScreen() {
@@ -336,6 +375,18 @@ func (np *nsfPlayer) updateScreen() {
 
 	np.DbgTerminal.newline()
 
+	nowTime := int(time.Now().Sub(np.CurrentSongStart).Seconds())
+	nowTimeStr := fmt.Sprintf("%02d:%02d", nowTime/60, nowTime%60)
+
+	endTimeStr := "??:??"
+	if np.CurrentSongLen > 0 {
+		endTime := int(np.CurrentSongLen.Seconds())
+		endTimeStr = fmt.Sprintf("%02d:%02d", endTime/60, endTime%60)
+	}
+	np.DbgTerminal.writeString(fmt.Sprintf("%s/%s\n", nowTimeStr, endTimeStr))
+
+	np.DbgTerminal.newline()
+
 	np.DbgTerminal.clearLine()
 	if np.Paused {
 		np.DbgTerminal.writeString("*PAUSED*\n")
@@ -345,36 +396,59 @@ func (np *nsfPlayer) updateScreen() {
 
 var lastInput time.Time
 
+func (np *nsfPlayer) prevSong() {
+	if np.CurrentSong > 0 {
+		np.CurrentSong--
+		np.initTune(np.CurrentSong)
+		np.updateScreen()
+	}
+}
+func (np *nsfPlayer) nextSong() {
+	if np.CurrentSong < np.Hdr.NumSongs-1 {
+		np.CurrentSong++
+		np.initTune(np.CurrentSong)
+		np.updateScreen()
+	}
+}
+
 func (np *nsfPlayer) UpdateInput(input Input) {
 	now := time.Now()
 	if now.Sub(lastInput).Seconds() > 0.20 {
 		if input.Joypad.Left {
-			if np.CurrentSong > 0 {
-				np.CurrentSong--
-				np.initTune(np.CurrentSong)
-				np.updateScreen()
-			}
+			np.prevSong()
 			lastInput = now
 		}
 		if input.Joypad.Right {
-			if np.CurrentSong < np.Hdr.NumSongs-1 {
-				np.CurrentSong++
-				np.initTune(np.CurrentSong)
-				np.updateScreen()
-			}
+			np.nextSong()
 			lastInput = now
 		}
 		if input.Joypad.Start {
 			np.Paused = !np.Paused
+			if np.Paused {
+				np.PauseStartTime = time.Now()
+			} else {
+				np.CurrentSongStart = np.CurrentSongStart.Add(time.Now().Sub(np.PauseStartTime))
+			}
 			lastInput = now
 			np.updateScreen()
 		}
 	}
 }
 
+var lastScreenUpdate time.Time
+
 func (np *nsfPlayer) Step() {
 	if !np.Paused {
+
 		now := time.Now()
+		if now.Sub(lastScreenUpdate) >= 100*time.Millisecond {
+			lastScreenUpdate = now
+			np.updateScreen()
+		}
+		if np.CurrentSongLen > 0 && now.Sub(np.CurrentSongStart) >= np.CurrentSongLen {
+			np.nextSong()
+		}
+
 		if np.PC == 0x0001 {
 			timeLeft := np.PlayCallInterval - now.Sub(np.LastPlayCall).Seconds()
 			if timeLeft <= 0 {
@@ -389,6 +463,7 @@ func (np *nsfPlayer) Step() {
 				}
 			}
 		}
+
 		if np.PC != 0x0001 {
 			np.step()
 		} else {

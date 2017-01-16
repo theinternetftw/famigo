@@ -249,16 +249,8 @@ func NewNsfPlayer(nsf []byte) Emulator {
 			return NewErrEmu("unsupported nsf parameter\nsub-0x8000 LoadAddrs")
 		}
 		mapper = &mapper000{}
-		padding := hdr.LoadAddr & 0x0fff
-		cart = append(make([]byte, padding), data...)
-
-		fmt.Printf("%04x\n", hdr.LoadAddr)
-		fmt.Println(len(data))
-		fmt.Println(len(cart))
-		for i := 0; i < 80; i++ {
-			fmt.Printf("%02x, ", cart[i])
-		}
-		fmt.Println()
+		cart = make([]byte, 32*1024)
+		copy(cart[hdr.LoadAddr-0x8000:], data)
 	}
 
 	var tvBit byte
@@ -354,7 +346,6 @@ func (np *nsfPlayer) updateScreen() {
 var lastInput time.Time
 
 func (np *nsfPlayer) UpdateInput(input Input) {
-	// put e.g. track skip controls here
 	now := time.Now()
 	if now.Sub(lastInput).Seconds() > 0.20 {
 		if input.Joypad.Left {

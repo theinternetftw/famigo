@@ -37,7 +37,7 @@ func (cs *cpuState) read(addr uint16) byte {
 	default:
 		emuErr(fmt.Sprintf("unimplemented read: %v", addr))
 	}
-	if showMemAccesses {
+	if showMemReads {
 		fmt.Printf("read(0x%04x) = 0x%02x\n", addr, val)
 	}
 	return val
@@ -120,7 +120,7 @@ func (cs *cpuState) write(addr uint16, val byte) {
 	default:
 		emuErr(fmt.Sprintf("unimplemented: write(0x%04x, 0x%02x)", addr, val))
 	}
-	if showMemAccesses {
+	if showMemWrites {
 		fmt.Printf("write(0x%04x, 0x%02x)\n", addr, val)
 	}
 }

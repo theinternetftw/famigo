@@ -103,8 +103,6 @@ func (cs *cpuState) undocumentedOpcode() {
 	}
 }
 
-const showMemAccesses = false
-
 func (cs *cpuState) stepOpcode() {
 
 	opcode := cs.read(cs.PC)

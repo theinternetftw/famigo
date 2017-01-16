@@ -82,7 +82,7 @@ func (cs *cpuState) runCycles(cycles uint) {
 }
 
 func (cs *cpuState) debugStatusLine() string {
-	if showMemAccesses {
+	if showMemReads {
 		fmt.Println()
 	}
 	opcode := cs.read(cs.PC)
@@ -129,6 +129,12 @@ func (cs *cpuState) handleInterrupts() {
 		cs.S -= 3
 		cs.P |= flagIrqDisabled
 		cs.write(0x4015, 0x00) // all channels off
+	} else if cs.BRK {
+		cs.BRK = false
+		cs.push16(cs.PC + 1)
+		cs.push(cs.P | flagBrk | flagOnStack)
+		cs.P |= flagIrqDisabled
+		cs.PC = cs.read16(0xfffe)
 	} else if cs.NMI {
 		cs.NMI = false
 		cs.push16(cs.PC)
@@ -139,16 +145,10 @@ func (cs *cpuState) handleInterrupts() {
 		cs.IRQ = false
 		if cs.interruptsEnabled() {
 			cs.push16(cs.PC)
-			cs.push(cs.P | flagBrk | flagOnStack)
+			cs.push(cs.P | flagOnStack)
 			cs.P |= flagIrqDisabled
 			cs.PC = cs.read16(0xfffe)
 		}
-	} else if cs.BRK {
-		cs.BRK = false
-		cs.push16(cs.PC + 1)
-		cs.push(cs.P | flagBrk | flagOnStack)
-		cs.P |= flagIrqDisabled
-		cs.PC = cs.read16(0xfffe)
 	}
 }
 
@@ -175,6 +175,11 @@ func (cs *cpuState) pop() byte {
 func (cs *cpuState) interruptsEnabled() bool {
 	return cs.P&flagIrqDisabled == 0
 }
+
+const (
+	showMemReads  = false
+	showMemWrites = false
+)
 
 // Step steps the emulator one instruction
 func (cs *cpuState) step() {

@@ -14,6 +14,10 @@ type nsfPlayer struct {
 	LastPlayCall     time.Time
 	CurrentSong      byte
 	TvStdBit         byte
+	Paused           bool
+	DbgCursor        dbgCursor
+	DbgScreen        [256 * 240 * 4]byte
+	DbgFlipRequested bool
 }
 
 type nsfHeader struct {
@@ -52,18 +56,14 @@ func (hdr *nsfHeader) usesBanks() bool {
 func NewNsfPlayer(nsf []byte) Emulator {
 	hdr := nsfHeader{}
 	if err := binary.Read(bytes.NewReader(nsf), binary.LittleEndian, &hdr); err != nil {
-		emuErr(err)
+		return NewErrEmu(fmt.Sprintf("nsf player error\n%s", err.Error()))
 	}
 	if hdr.SoundChipFlags != 0 {
-		emuErr("can't play nsf, needs this unimplemented chip:", hdr.SoundChipFlags)
+		return NewErrEmu(fmt.Sprintf("nsf player error\nunimplemented chip: %v", hdr.SoundChipFlags))
 	}
-
-	fmt.Println()
-	fmt.Println(string(hdr.SongName[:]))
-	fmt.Println(string(hdr.ArtistName[:]))
-	fmt.Println(string(hdr.CopyrightName[:]))
-	fmt.Println("Track count:", hdr.NumSongs)
-	fmt.Println()
+	if hdr.Version != 1 {
+		return NewErrEmu(fmt.Sprintf("nsf player error\nunsupported nsf version: %v", hdr.Version))
+	}
 
 	data := nsf[0x80:]
 
@@ -75,7 +75,7 @@ func NewNsfPlayer(nsf []byte) Emulator {
 		cart = append(make([]byte, padding), data...)
 	} else {
 		if hdr.LoadAddr < 0x8000 {
-			emuErr(fmt.Sprintf("we don't support sub-0x8000 LoadAddrs: %04x", hdr.LoadAddr))
+			return NewErrEmu("unsupported nsf parameter\nsub-0x8000 LoadAddrs")
 		}
 		mapper = &mapper000{}
 		padding := hdr.LoadAddr & 0x0fff
@@ -107,8 +107,17 @@ func NewNsfPlayer(nsf []byte) Emulator {
 		Hdr:              hdr,
 		CurrentSong:      hdr.StartSong - 1,
 		TvStdBit:         tvBit,
+		DbgCursor:        dbgCursor{w: 256, h: 240},
 	}
 	np.init()
+
+	np.DbgCursor.newline()
+	np.DbgCursor.writeString(np.DbgScreen[:], "NSF Player\n")
+	np.DbgCursor.newline()
+	np.DbgCursor.writeString(np.DbgScreen[:], "Title: "+string(hdr.SongName[:])+"\n")
+	np.DbgCursor.writeString(np.DbgScreen[:], "Artist: "+string(hdr.ArtistName[:])+"\n")
+	np.DbgCursor.writeString(np.DbgScreen[:], string(hdr.CopyrightName[:])+"\n")
+	np.DbgFlipRequested = true
 
 	np.initTune(np.CurrentSong)
 
@@ -116,6 +125,12 @@ func NewNsfPlayer(nsf []byte) Emulator {
 }
 
 func (np *nsfPlayer) initTune(songNum byte) {
+
+	np.DbgCursor.y = 8 * 7
+	np.DbgCursor.x = 0
+	np.DbgCursor.clearLine(np.DbgScreen[:])
+	np.DbgCursor.writeString(np.DbgScreen[:], fmt.Sprintf("Track %02d/%02d", songNum+1, np.Hdr.NumSongs))
+	np.DbgFlipRequested = true
 
 	for addr := uint16(0x0000); addr < 0x0800; addr++ {
 		np.write(addr, 0x00)
@@ -148,42 +163,58 @@ func (np *nsfPlayer) initTune(songNum byte) {
 	}
 }
 
-var lastTrackChange time.Time
+var lastInput time.Time
 
 func (np *nsfPlayer) UpdateInput(input Input) {
 	// put e.g. track skip controls here
 	now := time.Now()
-	if now.Sub(lastTrackChange).Seconds() > 0.25 {
+	if now.Sub(lastInput).Seconds() > 0.25 {
 		if input.Joypad.Left {
 			if np.CurrentSong > 0 {
 				np.CurrentSong--
 				np.initTune(np.CurrentSong)
 			}
-			lastTrackChange = now
+			lastInput = now
 		}
 		if input.Joypad.Right {
 			if np.CurrentSong < np.Hdr.NumSongs-1 {
 				np.CurrentSong++
 				np.initTune(np.CurrentSong)
 			}
-			lastTrackChange = now
+			lastInput = now
+		}
+		if input.Joypad.Start {
+			np.Paused = !np.Paused
+			lastInput = now
 		}
 	}
 }
 
 func (np *nsfPlayer) Step() {
-	now := time.Now()
-	if np.PC == 0x0001 {
-		if now.Sub(np.LastPlayCall).Seconds() >= np.PlayCallInterval {
-			np.LastPlayCall = now
-			np.S = 0xfd
-			np.push16(0x0000)
-			np.PC = np.Hdr.PlayAddr
+	if !np.Paused {
+		now := time.Now()
+		if np.PC == 0x0001 {
+			if now.Sub(np.LastPlayCall).Seconds() >= np.PlayCallInterval {
+				np.LastPlayCall = now
+				np.S = 0xfd
+				np.push16(0x0000)
+				np.PC = np.Hdr.PlayAddr
+			}
+		}
+		if np.PC != 0x0001 {
+			np.step()
+		} else {
+			np.runCycles(2)
 		}
 	}
-	if np.PC != 0x0001 {
-		np.step()
-	} else {
-		np.runCycles(1)
-	}
+}
+
+func (np *nsfPlayer) Framebuffer() []byte {
+	return np.DbgScreen[:]
+}
+
+func (np *nsfPlayer) FlipRequested() bool {
+	result := np.DbgFlipRequested
+	np.DbgFlipRequested = false
+	return result
 }

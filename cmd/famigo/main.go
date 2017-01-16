@@ -21,70 +21,31 @@ func main() {
 	romBytes, err := ioutil.ReadFile(cartFilename)
 	dieIf(err)
 
+	assert(len(romBytes) > 4, "cannot parse file, illegal header")
+
+	var emu famigo.Emulator
+
 	if string(romBytes[:4]) == "NESM" {
 		// nsf file
-		platform.InitDisplayLoop(256*2+40, 240*2+40, 256, 240, func(sharedState *platform.WindowState) {
-			startNsfEmu(cartFilename, sharedState, romBytes)
-		})
+		emu = famigo.NewNsfPlayer(romBytes)
 	} else {
+		// rom file
 		cartInfo, err := famigo.ParseCartInfo(romBytes)
 		dieIf(err)
+
 		fmt.Println("PRG ROM SIZE:", cartInfo.GetROMSizePrg())
 		fmt.Println("CHR ROM SIZE:", cartInfo.GetROMSizeChr())
 		fmt.Println("MAPPER NUM:", cartInfo.GetMapperNumber())
 
-		platform.InitDisplayLoop(256*2+40, 240*2+40, 256, 240, func(sharedState *platform.WindowState) {
-			startEmu(cartFilename, sharedState, romBytes)
-		})
+		emu = famigo.NewEmulator(romBytes)
 	}
+
+	platform.InitDisplayLoop(256*2+40, 240*2+40, 256, 240, func(sharedState *platform.WindowState) {
+		startEmu(cartFilename, sharedState, emu)
+	})
 }
 
-func startNsfEmu(filename string, window *platform.WindowState, romBytes []byte) {
-	emu := famigo.NewNsfPlayer(romBytes)
-
-	// FIXME: settings are for debug right now
-	lastVBlankTime := time.Now()
-
-	audio, err := platform.OpenAudioBuffer(4, 4096, 44100, 16, 2)
-	workingAudioBuffer := make([]byte, audio.BufferSize())
-	dieIf(err)
-
-	for {
-		window.Mutex.Lock()
-		newInput := famigo.Input {
-			Joypad: famigo.Joypad {
-				Sel:  window.CharIsDown('t'), Start: window.CharIsDown('y'),
-				Up:   window.CharIsDown('w'), Down:  window.CharIsDown('s'),
-				Left: window.CharIsDown('a'), Right: window.CharIsDown('d'),
-				A:    window.CharIsDown('k'), B:     window.CharIsDown('j'),
-			},
-		}
-		window.Mutex.Unlock()
-
-		emu.UpdateInput(newInput)
-
-		emu.Step()
-
-		bufferAvailable := audio.BufferAvailable()
-		// if bufferAvailable == audio.BufferSize() {
-		// 	fmt.Println("Platform AudioBuffer empty!")
-		// }
-		workingAudioBuffer = workingAudioBuffer[:bufferAvailable]
-		audio.Write(emu.ReadSoundBuffer(workingAudioBuffer))
-
-		if emu.FlipRequested() {
-			spent := time.Now().Sub(lastVBlankTime)
-			toWait := 17*time.Millisecond - spent
-			if toWait > time.Duration(0) {
-				<-time.NewTimer(toWait).C
-			}
-			lastVBlankTime = time.Now()
-		}
-	}
-}
-
-func startEmu(filename string, window *platform.WindowState, romBytes []byte) {
-	emu := famigo.NewEmulator(romBytes)
+func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator) {
 
 	// FIXME: settings are for debug right now
 	lastVBlankTime := time.Now()

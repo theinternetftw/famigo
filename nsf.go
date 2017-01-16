@@ -47,13 +47,13 @@ type nsfHeader struct {
 type parsedNsfe struct {
 	info infoChunk
 	data []byte
-	bank *bankChunk
+	bank bankChunk
 	plst *plstChunk
-	time *timeChunk
-	fade *fadeChunk
-	tlbl *tlblChunk
-	auth *authChunk
-	text *textChunk
+	time timeChunk
+	fade fadeChunk
+	tlbl tlblChunk
+	auth authChunk
+	text textChunk
 }
 
 type chunkHdr struct {
@@ -82,14 +82,10 @@ func (p *parsedNsfe) getNsfHeader() nsfHeader {
 	} else {
 		hdr.PlaySpeedPal = defaultSpeedPal
 	}
-	if p.bank != nil {
-		hdr.BankVals = p.bank.BankVals
-	}
-	if p.auth != nil {
-		copy(hdr.SongName[:], p.auth.GameTitle) // what it really is, anyway... or album
-		copy(hdr.ArtistName[:], p.auth.Artist)
-		copy(hdr.CopyrightName[:], p.auth.Copyright)
-	}
+	hdr.BankVals = p.bank.BankVals
+	copy(hdr.SongName[:], p.auth.GameTitle) // what it really is, anyway... or album
+	copy(hdr.ArtistName[:], p.auth.Artist)
+	copy(hdr.CopyrightName[:], p.auth.Copyright)
 	return hdr
 }
 
@@ -130,45 +126,37 @@ func parseNsfe(nsfe []byte) (parsedNsfe, error) {
 			sawData = true
 			parsed.data = nsfe[:chunkHdr.ChunkLen]
 		case "BANK":
-			bank := bankChunk{}
 			for i := uint32(0); i < 8 && i < chunkHdr.ChunkLen; i++ {
-				bank.BankVals[i] = nsfe[i]
+				parsed.bank.BankVals[i] = nsfe[i]
 			}
-			parsed.bank = &bank
 		case "NEND":
 			sawNend = true
 			break
 		case "time":
-			tChunk := timeChunk{}
 			for i := uint32(0); i < chunkHdr.ChunkLen; i += 4 {
 				var songLen int32
 				if err := readStructLE(nsfe[i:], &songLen); err != nil {
 					return parsedNsfe{}, err
 				}
-				tChunk.SongLengths = append(tChunk.SongLengths, songLen)
+				parsed.time.SongLengths = append(parsed.time.SongLengths, songLen)
 			}
-			parsed.time = &tChunk
 		case "fade":
-			fChunk := fadeChunk{}
 			for i := uint32(0); i < chunkHdr.ChunkLen; i += 4 {
 				var fadeTime int32
 				if err := readStructLE(nsfe[i:], &fadeTime); err != nil {
 					return parsedNsfe{}, err
 				}
-				fChunk.FadeTimes = append(fChunk.FadeTimes, fadeTime)
+				parsed.fade.FadeTimes = append(parsed.fade.FadeTimes, fadeTime)
 			}
-			parsed.fade = &fChunk
 		case "auth":
-			auth := authChunk{}
 			authBytes := nsfe[:chunkHdr.ChunkLen]
-			auth.GameTitle = getNullStr(authBytes)
-			authBytes = authBytes[len(auth.GameTitle)+1:]
-			auth.Artist = getNullStr(authBytes)
-			authBytes = authBytes[len(auth.Artist)+1:]
-			auth.Copyright = getNullStr(authBytes)
-			authBytes = authBytes[len(auth.Copyright)+1:]
-			auth.Ripper = getNullStr(authBytes)
-			parsed.auth = &auth
+			parsed.auth.GameTitle = getNullStr(authBytes)
+			authBytes = authBytes[len(parsed.auth.GameTitle)+1:]
+			parsed.auth.Artist = getNullStr(authBytes)
+			authBytes = authBytes[len(parsed.auth.Artist)+1:]
+			parsed.auth.Copyright = getNullStr(authBytes)
+			authBytes = authBytes[len(parsed.auth.Copyright)+1:]
+			parsed.auth.Ripper = getNullStr(authBytes)
 		default:
 			if chunkName[0] >= 'A' && chunkName[0] <= 'Z' {
 				return parsedNsfe{}, fmt.Errorf("unknown and required nsfe chunk %q", chunkName)
@@ -184,6 +172,17 @@ func parseNsfe(nsfe []byte) (parsedNsfe, error) {
 	}
 	if !sawNend {
 		return parsedNsfe{}, fmt.Errorf("bad nsfe, missing required chunk NEND")
+	}
+	for i := 0; i < int(parsed.info.NumSongs); i++ {
+		if i > len(parsed.time.SongLengths)-1 {
+			parsed.time.SongLengths = append(parsed.time.SongLengths, -1)
+		}
+		if i > len(parsed.fade.FadeTimes)-1 {
+			parsed.fade.FadeTimes = append(parsed.fade.FadeTimes, 0)
+		}
+		if i > len(parsed.tlbl.SongNames)-1 {
+			parsed.tlbl.SongNames = append(parsed.tlbl.SongNames, "")
+		}
 	}
 	return parsed, nil
 }
@@ -302,14 +301,13 @@ func NewNsfPlayer(nsf []byte) Emulator {
 		PlayCallInterval: playSpeed,
 		Hdr:              hdr,
 		HdrExtended:      &nsfe,
-		CurrentSong:      hdr.StartSong - 1,
 		TvStdBit:         tvBit,
 	}
 	np.DbgTerminal = dbgTerminal{w: 256, h: 240, screen: np.DbgScreen[:]}
 
 	np.init()
 
-	np.initTune(np.CurrentSong)
+	np.initTune(np.Hdr.StartSong - 1)
 
 	np.updateScreen()
 
@@ -347,13 +345,11 @@ func (np *nsfPlayer) initTune(songNum byte) {
 		np.step()
 	}
 
+	np.CurrentSong = songNum
 	np.CurrentSongLen = 0
 	ehdr := np.HdrExtended
-	if ehdr != nil && ehdr.time != nil && int(np.CurrentSong) < len(ehdr.time.SongLengths) {
-		songLen := ehdr.time.SongLengths[np.CurrentSong]
-		if ehdr.fade != nil && int(np.CurrentSong) < len(ehdr.fade.FadeTimes) {
-			songLen += ehdr.fade.FadeTimes[np.CurrentSong]
-		}
+	if ehdr != nil {
+		songLen := ehdr.time.SongLengths[np.CurrentSong] + ehdr.fade.FadeTimes[np.CurrentSong]
 		if songLen >= 0 {
 			np.CurrentSongLen = time.Duration(songLen) * time.Millisecond
 		}
@@ -410,6 +406,15 @@ func (np *nsfPlayer) nextSong() {
 		np.updateScreen()
 	}
 }
+func (np *nsfPlayer) togglePause() {
+	np.Paused = !np.Paused
+	if np.Paused {
+		np.PauseStartTime = time.Now()
+	} else {
+		np.CurrentSongStart = np.CurrentSongStart.Add(time.Now().Sub(np.PauseStartTime))
+	}
+	np.updateScreen()
+}
 
 func (np *nsfPlayer) UpdateInput(input Input) {
 	now := time.Now()
@@ -423,14 +428,8 @@ func (np *nsfPlayer) UpdateInput(input Input) {
 			lastInput = now
 		}
 		if input.Joypad.Start {
-			np.Paused = !np.Paused
-			if np.Paused {
-				np.PauseStartTime = time.Now()
-			} else {
-				np.CurrentSongStart = np.CurrentSongStart.Add(time.Now().Sub(np.PauseStartTime))
-			}
+			np.togglePause()
 			lastInput = now
-			np.updateScreen()
 		}
 	}
 }
@@ -446,7 +445,14 @@ func (np *nsfPlayer) Step() {
 			np.updateScreen()
 		}
 		if np.CurrentSongLen > 0 && now.Sub(np.CurrentSongStart) >= np.CurrentSongLen {
-			np.nextSong()
+			if np.CurrentSong < np.Hdr.NumSongs-1 {
+				np.nextSong()
+			} else {
+				np.initTune(np.Hdr.StartSong - 1)
+				if !np.Paused {
+					np.togglePause()
+				}
+			}
 		}
 
 		if np.PC == 0x0001 {
@@ -470,6 +476,28 @@ func (np *nsfPlayer) Step() {
 			np.runCycles(2)
 		}
 	}
+}
+
+func (np *nsfPlayer) ReadSoundBuffer(toFill []byte) []byte {
+	buf := np.APU.buffer.read(toFill)
+	if len(buf) > 0 {
+		if np.CurrentSongLen > 0 && np.HdrExtended != nil {
+			fadeLen := time.Duration(np.HdrExtended.fade.FadeTimes[np.CurrentSong]) * time.Millisecond
+			if fadeLen > 0 {
+				preFadeLen := np.CurrentSongLen - fadeLen
+				songTime := time.Now().Sub(np.CurrentSongStart)
+				if songTime >= preFadeLen && songTime <= np.CurrentSongLen {
+					fadeT := float64(songTime-preFadeLen) / float64(fadeLen)
+					for i := 0; i < len(buf); i += 2 {
+						sample := (int16(buf[i+1]) << 8) | int16(buf[i])
+						fadedSample := int16(float64(sample) * (1.0 - fadeT))
+						buf[i], buf[i+1] = byte(fadedSample), byte(fadedSample>>8)
+					}
+				}
+			}
+		}
+	}
+	return buf
 }
 
 func (np *nsfPlayer) Framebuffer() []byte {

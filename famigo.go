@@ -181,7 +181,6 @@ const (
 	showMemWrites = false
 )
 
-// Step steps the emulator one instruction
 func (cs *cpuState) step() {
 
 	cs.handleInterrupts()

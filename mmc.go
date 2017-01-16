@@ -146,8 +146,10 @@ type mapper001 struct {
 	PrgBankMode          mapper001PRGBankMode
 	ChrBankMode          mapper001CHRBankMode
 	PrgBankNumber        int
+	PrgBankNumber256     int
 	ChrBank0Number       int
 	ChrBank1Number       int
+	PrgRAMBankNumber     int
 	RAMEnabled           bool
 	IsChrRAM             bool
 }
@@ -176,22 +178,33 @@ func (m *mapper001) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
 		// FIXME: not complete for SOROM and SXROM
 		// will crash if no RAM, but should be fine
-		return mem.PrgRAM[(int(addr)-0x6000)&(len(mem.PrgRAM)-1)]
+		realAddr := 8*1024*m.PrgRAMBankNumber + int(addr-0x6000)
+		return mem.PrgRAM[realAddr&(len(mem.PrgRAM)-1)]
 	}
 	if addr >= 0x8000 {
 		switch m.PrgBankMode {
 		case oneBigBank:
-			return mem.PrgROM[16*1024*m.PrgBankNumber+int(addr-0x8000)]
+			realAddr := 256*1024*m.PrgBankNumber256 + 16*1024*m.PrgBankNumber + int(addr-0x8000)
+			return mem.PrgROM[realAddr]
 		case firstBankFixed:
 			if addr < 0xc000 {
-				return mem.PrgROM[addr-0x8000]
+				realAddr := 256*1024*m.PrgBankNumber256 + int(addr-0x8000)
+				return mem.PrgROM[realAddr]
 			}
-			return mem.PrgROM[16*1024*m.PrgBankNumber+int(addr-0xc000)]
+			realAddr := 256*1024*m.PrgBankNumber256 + 16*1024*m.PrgBankNumber + int(addr-0xc000)
+			return mem.PrgROM[realAddr]
 		case lastBankFixed:
 			if addr >= 0xc000 {
-				return mem.PrgROM[len(mem.PrgROM)-(16*1024)+int(addr-0xc000)]
+				var lastBankStart int
+				if len(mem.PrgROM) > 256*1024 && m.PrgBankNumber256 == 0 {
+					lastBankStart = 256*1024 - 16*1024
+				} else {
+					lastBankStart = len(mem.PrgROM) - (16 * 1024)
+				}
+				return mem.PrgROM[lastBankStart+int(addr-0xc000)]
 			}
-			return mem.PrgROM[16*1024*m.PrgBankNumber+int(addr-0x8000)]
+			realAddr := 256*1024*m.PrgBankNumber256 + 16*1024*m.PrgBankNumber + int(addr-0x8000)
+			return mem.PrgROM[realAddr]
 		}
 	}
 	return 0xff
@@ -199,7 +212,10 @@ func (m *mapper001) Read(mem *mem, addr uint16) byte {
 
 func (m *mapper001) Write(mem *mem, addr uint16, val byte) {
 	if addr >= 0x6000 && addr < 0x8000 {
-		realAddr := (int(addr) - 0x6000) & (len(mem.PrgRAM) - 1)
+		// FIXME: not complete for SOROM and SXROM
+		// will crash if no RAM, but should be fine
+		realAddr := 8*1024*m.PrgRAMBankNumber + int(addr-0x6000)
+		realAddr &= len(mem.PrgRAM) - 1
 		if realAddr < len(mem.PrgRAM)-1 {
 			mem.PrgRAM[realAddr] = val
 		}
@@ -259,13 +275,35 @@ func (m *mapper001) writeReg(mem *mem, addr uint16, val byte) {
 		if m.ChrBankMode == oneBank {
 			val &^= 0x01
 		}
-		m.ChrBank0Number = int(val)
-		m.ChrBank0Number &= len(mem.ChrROM)/(4*1024) - 1
+		chrBankNum := int(val)
+		if len(mem.PrgROM) > 256*1024 {
+			m.PrgBankNumber256 = int(val>>4) & 0x01
+			chrBankNum &= 0x0f
+		}
+		if len(mem.ChrROM) == 8*1024 {
+			chrBankNum &= 0x01
+			if len(mem.PrgROM) <= 256*1024 {
+				// impl ram disable here, if desired
+			}
+			m.PrgRAMBankNumber = int(val>>2) & 0x03
+		}
+		m.ChrBank0Number = chrBankNum & (len(mem.ChrROM)/(4*1024) - 1)
 
 	case addr >= 0xc000 && addr < 0xe000:
-		if m.ChrBankMode == twoBanks {
-			m.ChrBank1Number = int(val)
-			m.ChrBank1Number &= len(mem.ChrROM)/(4*1024) - 1
+		if m.ChrBankMode != oneBank {
+			chrBankNum := int(val)
+			if len(mem.PrgROM) > 256*1024 {
+				m.PrgBankNumber256 = int(val>>4) & 0x01
+				chrBankNum &= 0x0f
+			}
+			if len(mem.ChrROM) == 8*1024 {
+				chrBankNum &= 0x01
+				if len(mem.PrgROM) <= 256*1024 {
+					// impl ram disable here, if desired
+				}
+				m.PrgRAMBankNumber = int(val>>2) & 0x03
+			}
+			m.ChrBank1Number = chrBankNum & (len(mem.ChrROM)/(4*1024) - 1)
 		}
 
 	case addr >= 0xe000:
@@ -273,8 +311,7 @@ func (m *mapper001) writeReg(mem *mem, addr uint16, val byte) {
 		if m.PrgBankMode == oneBigBank {
 			val &^= 0x01
 		}
-		m.PrgBankNumber = int(val & 0x0f)
-		m.PrgBankNumber &= len(mem.PrgROM)/(16*1024) - 1
+		m.PrgBankNumber = int(val&0x0f) & (len(mem.PrgROM)/(16*1024) - 1)
 	}
 }
 

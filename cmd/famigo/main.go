@@ -25,8 +25,9 @@ func main() {
 
 	var emu famigo.Emulator
 
-	if string(romBytes[:4]) == "NESM" {
-		// nsf file
+	fileMagic := string(romBytes[:4])
+	if fileMagic == "NESM" || fileMagic == "NSFE" {
+		// nsf(e) file
 		emu = famigo.NewNsfPlayer(romBytes)
 	} else {
 		// rom file

@@ -3,19 +3,18 @@ package famigo
 import "os"
 
 type errEmu struct {
-	cursor        dbgCursor
+	terminal      dbgTerminal
 	screen        [256 * 240 * 4]byte
 	flipRequested bool
 }
 
 // NewErrEmu returns an emulator that only shows an error message
 func NewErrEmu(msg string) Emulator {
-	emu := errEmu{
-		cursor: dbgCursor{w: 256, h: 240},
-	}
+	emu := errEmu{}
+	emu.terminal = dbgTerminal{w: 256, h: 240, screen: emu.screen[:]}
 	os.Stderr.Write([]byte(msg + "\n"))
-	emu.cursor.newline()
-	emu.cursor.writeString(emu.screen[:], msg)
+	emu.terminal.newline()
+	emu.terminal.writeString(msg)
 	emu.flipRequested = true
 	return &emu
 }

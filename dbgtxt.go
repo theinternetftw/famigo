@@ -5,46 +5,58 @@ import (
 	"strings"
 )
 
-type dbgCursor struct {
-	x, y int
-	w, h int
+type dbgTerminal struct {
+	x, y   int
+	w, h   int
+	screen []byte // w*h*4
 }
 
-func (c *dbgCursor) newline() {
-	c.x = 0
-	c.y += 8
-	if c.y >= c.h {
-		c.y = 0
+func (t *dbgTerminal) newline() {
+	t.x = 0
+	t.y += 8
+	if t.y >= t.h {
+		t.y = 0
 	}
 }
 
-func (c *dbgCursor) advanceChar() {
-	c.x += 8
-	if c.x >= c.w {
-		c.newline()
+func (t *dbgTerminal) advanceChar() {
+	t.x += 8
+	if t.x >= t.w {
+		t.newline()
 	}
 }
 
-func (c *dbgCursor) clearLine(screen []byte) {
-	startX, startY := c.x, c.y
-	for c.y == startY {
-		c.writeChar(screen, ' ')
-	}
-	c.x, c.y = startX, startY
+func (t *dbgTerminal) setPos(x, y int) {
+	t.x = x * 8
+	t.y = y * 8
 }
 
-func (c *dbgCursor) writeString(screen []byte, str string) {
+func (t *dbgTerminal) clearLine() {
+	startX, startY := t.x, t.y
+	for t.y == startY {
+		t.writeChar(' ')
+	}
+	t.x, t.y = startX, startY
+}
+
+func (t *dbgTerminal) clearScreen() {
+	for i := 0; i < len(t.screen); i++ {
+		t.screen[i] = 0
+	}
+}
+
+func (t *dbgTerminal) writeString(str string) {
 	for _, char := range strings.ToUpper(str) {
 		if char == '\x00' {
 			continue
 		}
-		c.writeChar(screen, char)
+		t.writeChar(char)
 	}
 }
 
-func (c *dbgCursor) writeChar(screen []byte, char rune) {
+func (t *dbgTerminal) writeChar(char rune) {
 	if char == '\n' {
-		c.newline()
+		t.newline()
 	} else {
 		fontChr, ok := dbgFont[char]
 		if !ok {
@@ -52,7 +64,7 @@ func (c *dbgCursor) writeChar(screen []byte, char rune) {
 			fontChr = dbgFont['?']
 		}
 		for i := 0; i < 7; i++ {
-			line := screen[(c.y+i)*c.w*4+c.x*4:]
+			line := t.screen[(t.y+i)*t.w*4+t.x*4:]
 			chrLine := fontChr[i*7 : i*7+7]
 			for j := 0; j < 7; j++ {
 				col := byte(0)
@@ -63,7 +75,7 @@ func (c *dbgCursor) writeChar(screen []byte, char rune) {
 				line[j*4+2], line[j*4+3] = col, col
 			}
 		}
-		c.advanceChar()
+		t.advanceChar()
 	}
 }
 
@@ -454,5 +466,32 @@ var dbgFont = map[rune][7 * 7]byte{
 		0, 0, 1, 0, 0, 0, 0,
 		0, 1, 0, 0, 0, 0, 0,
 		1, 0, 0, 0, 0, 0, 0,
+	},
+	'*': {
+		1, 0, 0, 1, 0, 0, 1,
+		0, 1, 0, 1, 0, 1, 0,
+		0, 0, 1, 1, 1, 0, 0,
+		0, 0, 0, 1, 0, 0, 0,
+		0, 0, 1, 1, 1, 0, 0,
+		0, 1, 0, 1, 0, 1, 0,
+		1, 0, 0, 1, 0, 0, 1,
+	},
+	'"': {
+		0, 1, 1, 0, 1, 1, 0,
+		0, 1, 1, 0, 1, 1, 0,
+		0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0,
+	},
+	'\'': {
+		0, 0, 1, 1, 0, 0, 0,
+		0, 0, 1, 1, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0,
 	},
 }

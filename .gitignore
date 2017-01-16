@@ -7,6 +7,8 @@ build-dev
 r
 
 *.nes
+*.nsf
+*.nsfe
 *.sav
 
 *.exe

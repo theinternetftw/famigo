@@ -10,12 +10,13 @@ import (
 type nsfPlayer struct {
 	cpuState
 	Hdr              nsfHeader
+	HdrExtended      *parsedNsfe
 	PlayCallInterval float64
 	LastPlayCall     time.Time
 	CurrentSong      byte
 	TvStdBit         byte
 	Paused           bool
-	DbgCursor        dbgCursor
+	DbgTerminal      dbgTerminal
 	DbgScreen        [256 * 240 * 4]byte
 	DbgFlipRequested bool
 }
@@ -39,6 +40,153 @@ type nsfHeader struct {
 	Reserved       [4]byte
 }
 
+type parsedNsfe struct {
+	info infoChunk
+	data []byte
+	bank *bankChunk
+	plst *plstChunk
+	fade *fadeChunk
+	tlbl *tlblChunk
+	auth *authChunk
+	text *textChunk
+}
+
+type chunkHdr struct {
+	ChunkLen uint32
+	Fourcc   [4]byte
+}
+
+const (
+	defaultSpeedPal    = 19997
+	defaultSpeedNtsc   = 16639
+	defaultSpeedAPUIRQ = 16666
+)
+
+func (p *parsedNsfe) getNsfHeader() nsfHeader {
+	hdr := nsfHeader{
+		LoadAddr:       p.info.LoadAddr,
+		InitAddr:       p.info.InitAddr,
+		PlayAddr:       p.info.PlayAddr,
+		TvStdFlags:     p.info.TvStdFlags,
+		SoundChipFlags: p.info.SoundChipFlags,
+		NumSongs:       p.info.NumSongs,
+		StartSong:      p.info.StartSong + 1,
+	}
+	if hdr.isNTSC() {
+		hdr.PlaySpeedNtsc = defaultSpeedNtsc
+	} else {
+		hdr.PlaySpeedPal = defaultSpeedPal
+	}
+	if p.bank != nil {
+		hdr.BankVals = p.bank.BankVals
+	}
+	if p.auth != nil {
+		copy(hdr.SongName[:], p.auth.GameTitle) // what it really is, anyway... or album
+		copy(hdr.ArtistName[:], p.auth.Artist)
+		copy(hdr.CopyrightName[:], p.auth.Copyright)
+	}
+	return hdr
+}
+
+func readStructLE(structBytes []byte, iface interface{}) error {
+	return binary.Read(bytes.NewReader(structBytes), binary.LittleEndian, iface)
+}
+
+func getNullStr(bytes []byte) string {
+	for i := 0; i < len(bytes); i++ {
+		if bytes[i] == 0 {
+			return string(bytes[:i])
+		}
+	}
+	return ""
+}
+
+func parseNsfe(nsfe []byte) (parsedNsfe, error) {
+	parsed := parsedNsfe{}
+	nsfe = nsfe[4:] // skip magic
+	var sawInfo, sawData, sawNend bool
+	for len(nsfe) > 0 {
+		chunkHdr := chunkHdr{}
+		if err := readStructLE(nsfe, &chunkHdr); err != nil {
+			return parsedNsfe{}, err
+		}
+		if int(chunkHdr.ChunkLen) > len(nsfe) {
+			return parsedNsfe{}, fmt.Errorf("bad nsfe chunk length %v", chunkHdr.ChunkLen)
+		}
+		nsfe = nsfe[8:] // past hdr
+		chunkName := string(chunkHdr.Fourcc[:])
+		switch chunkName {
+		case "INFO":
+			sawInfo = true
+			if err := readStructLE(nsfe, &parsed.info); err != nil {
+				return parsedNsfe{}, err
+			}
+		case "DATA":
+			sawData = true
+			parsed.data = nsfe[:chunkHdr.ChunkLen]
+		case "BANK":
+			bank := bankChunk{}
+			for i := uint32(0); i < 8 && i < chunkHdr.ChunkLen; i++ {
+				bank.BankVals[i] = nsfe[i]
+			}
+			parsed.bank = &bank
+		case "NEND":
+			sawNend = true
+			break
+		case "auth":
+			auth := authChunk{}
+			authBytes := nsfe[:chunkHdr.ChunkLen]
+			auth.GameTitle = getNullStr(authBytes)
+			authBytes = authBytes[len(auth.GameTitle)+1:]
+			auth.Artist = getNullStr(authBytes)
+			authBytes = authBytes[len(auth.Artist)+1:]
+			auth.Copyright = getNullStr(authBytes)
+			authBytes = authBytes[len(auth.Copyright)+1:]
+			auth.Ripper = getNullStr(authBytes)
+			parsed.auth = &auth
+		default:
+			if chunkName[0] >= 'A' && chunkName[0] <= 'Z' {
+				return parsedNsfe{}, fmt.Errorf("unknown and required nsfe chunk %q", chunkName)
+			}
+		}
+		nsfe = nsfe[chunkHdr.ChunkLen:]
+	}
+	if !sawInfo {
+		return parsedNsfe{}, fmt.Errorf("bad nsfe, missing required chunk INFO")
+	}
+	if !sawData {
+		return parsedNsfe{}, fmt.Errorf("bad nsfe, missing required chunk DATA")
+	}
+	if !sawNend {
+		return parsedNsfe{}, fmt.Errorf("bad nsfe, missing required chunk NEND")
+	}
+	return parsed, nil
+}
+
+type plstChunk struct{ Playlist []byte }
+type timeChunk struct{ SongLengths []int32 }
+type fadeChunk struct{ FadeTimes []int32 }
+type bankChunk struct{ BankVals [8]byte }
+type tlblChunk struct{ SongNames []string }
+type authChunk struct {
+	GameTitle string
+	Artist    string
+	Copyright string
+	Ripper    string
+}
+type textChunk struct {
+	Text string
+}
+type infoChunk struct {
+	LoadAddr       uint16
+	InitAddr       uint16
+	PlayAddr       uint16
+	TvStdFlags     byte
+	SoundChipFlags byte
+	NumSongs       byte
+	StartSong      byte
+}
+
 func (hdr *nsfHeader) isNTSC() bool {
 	return hdr.TvStdFlags&0x01 == 0 || hdr.TvStdFlags&0x02 == 0x02
 }
@@ -52,20 +200,43 @@ func (hdr *nsfHeader) usesBanks() bool {
 	return false
 }
 
-// NewNsfPlayer creates an nsfPlayer session
-func NewNsfPlayer(nsf []byte) Emulator {
+func parseNsf(nsf []byte) (nsfHeader, []byte, error) {
 	hdr := nsfHeader{}
-	if err := binary.Read(bytes.NewReader(nsf), binary.LittleEndian, &hdr); err != nil {
-		return NewErrEmu(fmt.Sprintf("nsf player error\n%s", err.Error()))
+	if err := readStructLE(nsf, &hdr); err != nil {
+		return nsfHeader{}, nil, fmt.Errorf("nsf player error\n%s", err.Error())
 	}
 	if hdr.SoundChipFlags != 0 {
-		return NewErrEmu(fmt.Sprintf("nsf player error\nunimplemented chip: %v", hdr.SoundChipFlags))
+		return nsfHeader{}, nil, fmt.Errorf("nsf player error\nunimplemented chip: %v", hdr.SoundChipFlags)
 	}
 	if hdr.Version != 1 {
-		return NewErrEmu(fmt.Sprintf("nsf player error\nunsupported nsf version: %v", hdr.Version))
+		return nsfHeader{}, nil, fmt.Errorf("nsf player error\nunsupported nsf version: %v", hdr.Version)
 	}
-
 	data := nsf[0x80:]
+	return hdr, data, nil
+}
+
+// NewNsfPlayer creates an nsfPlayer session
+func NewNsfPlayer(nsf []byte) Emulator {
+
+	var nsfe parsedNsfe
+	var hdr nsfHeader
+	var data []byte
+	var err error
+	switch string(nsf[:4]) {
+	case "NESM":
+		hdr, data, err = parseNsf(nsf)
+	case "NSFE":
+		nsfe, err = parseNsfe(nsf)
+		if err == nil {
+			hdr = nsfe.getNsfHeader()
+			data = nsfe.data
+		}
+	default:
+		err = fmt.Errorf("Unknown format: %q", string(nsf[:4]))
+	}
+	if err != nil {
+		return NewErrEmu(fmt.Sprintf("nsf player error\n%s", err.Error()))
+	}
 
 	var mapper mmc
 	var cart []byte
@@ -107,31 +278,19 @@ func NewNsfPlayer(nsf []byte) Emulator {
 		Hdr:              hdr,
 		CurrentSong:      hdr.StartSong - 1,
 		TvStdBit:         tvBit,
-		DbgCursor:        dbgCursor{w: 256, h: 240},
 	}
+	np.DbgTerminal = dbgTerminal{w: 256, h: 240, screen: np.DbgScreen[:]}
+
 	np.init()
 
-	np.DbgCursor.newline()
-	np.DbgCursor.writeString(np.DbgScreen[:], "NSF Player\n")
-	np.DbgCursor.newline()
-	np.DbgCursor.writeString(np.DbgScreen[:], "Title: "+string(hdr.SongName[:])+"\n")
-	np.DbgCursor.writeString(np.DbgScreen[:], "Artist: "+string(hdr.ArtistName[:])+"\n")
-	np.DbgCursor.writeString(np.DbgScreen[:], string(hdr.CopyrightName[:])+"\n")
-	np.DbgFlipRequested = true
-
 	np.initTune(np.CurrentSong)
+
+	np.updateScreen()
 
 	return &np
 }
 
 func (np *nsfPlayer) initTune(songNum byte) {
-
-	np.DbgCursor.y = 8 * 7
-	np.DbgCursor.x = 0
-	np.DbgCursor.clearLine(np.DbgScreen[:])
-	np.DbgCursor.writeString(np.DbgScreen[:], fmt.Sprintf("Track %02d/%02d", songNum+1, np.Hdr.NumSongs))
-	np.DbgFlipRequested = true
-
 	for addr := uint16(0x0000); addr < 0x0800; addr++ {
 		np.write(addr, 0x00)
 	}
@@ -163,16 +322,38 @@ func (np *nsfPlayer) initTune(songNum byte) {
 	}
 }
 
+func (np *nsfPlayer) updateScreen() {
+
+	np.DbgTerminal.setPos(0, 1)
+	np.DbgTerminal.writeString("NSF Player\n")
+	np.DbgTerminal.newline()
+	np.DbgTerminal.writeString("Title: " + string(np.Hdr.SongName[:]) + "\n")
+	np.DbgTerminal.writeString("Artist: " + string(np.Hdr.ArtistName[:]) + "\n")
+	np.DbgTerminal.writeString(string(np.Hdr.CopyrightName[:]) + "\n")
+
+	np.DbgTerminal.clearLine()
+	np.DbgTerminal.writeString(fmt.Sprintf("Track %02d/%02d\n", np.CurrentSong+1, np.Hdr.NumSongs))
+
+	np.DbgTerminal.newline()
+
+	np.DbgTerminal.clearLine()
+	if np.Paused {
+		np.DbgTerminal.writeString("*PAUSED*\n")
+	}
+	np.DbgFlipRequested = true
+}
+
 var lastInput time.Time
 
 func (np *nsfPlayer) UpdateInput(input Input) {
 	// put e.g. track skip controls here
 	now := time.Now()
-	if now.Sub(lastInput).Seconds() > 0.25 {
+	if now.Sub(lastInput).Seconds() > 0.20 {
 		if input.Joypad.Left {
 			if np.CurrentSong > 0 {
 				np.CurrentSong--
 				np.initTune(np.CurrentSong)
+				np.updateScreen()
 			}
 			lastInput = now
 		}
@@ -180,12 +361,14 @@ func (np *nsfPlayer) UpdateInput(input Input) {
 			if np.CurrentSong < np.Hdr.NumSongs-1 {
 				np.CurrentSong++
 				np.initTune(np.CurrentSong)
+				np.updateScreen()
 			}
 			lastInput = now
 		}
 		if input.Joypad.Start {
 			np.Paused = !np.Paused
 			lastInput = now
+			np.updateScreen()
 		}
 	}
 }

@@ -342,6 +342,12 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 		cs.NMI = true
 	}
 
+	if ppu.PPUCyclesSinceYInc == 0 {
+		if ppu.LineY == -1 && (ppu.ShowBG || ppu.ShowSprites) && ppu.FrameCounter&0x01 == 0x01 {
+			ppu.PPUCyclesSinceYInc++ // skip 0th cycle
+		}
+	}
+
 	if ppu.PPUCyclesSinceYInc == 1 {
 		if ppu.LineY == 241 {
 			ppu.FrameCounter++

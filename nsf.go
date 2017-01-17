@@ -102,17 +102,17 @@ func getNullStr(bytes []byte) string {
 	return ""
 }
 
-func parseNsfe(nsfe []byte) (parsedNsfe, error) {
+func parseNsfe(nsfe []byte) (*parsedNsfe, error) {
 	parsed := parsedNsfe{}
 	nsfe = nsfe[4:] // skip magic
 	var sawInfo, sawData, sawNend bool
 	for len(nsfe) > 0 {
 		chunkHdr := chunkHdr{}
 		if err := readStructLE(nsfe, &chunkHdr); err != nil {
-			return parsedNsfe{}, err
+			return nil, err
 		}
 		if int(chunkHdr.ChunkLen) > len(nsfe) {
-			return parsedNsfe{}, fmt.Errorf("bad nsfe chunk length %v", chunkHdr.ChunkLen)
+			return nil, fmt.Errorf("bad nsfe chunk length %v", chunkHdr.ChunkLen)
 		}
 		nsfe = nsfe[8:] // past hdr
 		chunkName := string(chunkHdr.Fourcc[:])
@@ -120,7 +120,7 @@ func parseNsfe(nsfe []byte) (parsedNsfe, error) {
 		case "INFO":
 			sawInfo = true
 			if err := readStructLE(nsfe, &parsed.info); err != nil {
-				return parsedNsfe{}, err
+				return nil, err
 			}
 		case "DATA":
 			sawData = true
@@ -136,7 +136,7 @@ func parseNsfe(nsfe []byte) (parsedNsfe, error) {
 			for i := uint32(0); i < chunkHdr.ChunkLen; i += 4 {
 				var songLen int32
 				if err := readStructLE(nsfe[i:], &songLen); err != nil {
-					return parsedNsfe{}, err
+					return nil, err
 				}
 				parsed.time.SongLengths = append(parsed.time.SongLengths, songLen)
 			}
@@ -144,7 +144,7 @@ func parseNsfe(nsfe []byte) (parsedNsfe, error) {
 			for i := uint32(0); i < chunkHdr.ChunkLen; i += 4 {
 				var fadeTime int32
 				if err := readStructLE(nsfe[i:], &fadeTime); err != nil {
-					return parsedNsfe{}, err
+					return nil, err
 				}
 				parsed.fade.FadeTimes = append(parsed.fade.FadeTimes, fadeTime)
 			}
@@ -157,21 +157,28 @@ func parseNsfe(nsfe []byte) (parsedNsfe, error) {
 			parsed.auth.Copyright = getNullStr(authBytes)
 			authBytes = authBytes[len(parsed.auth.Copyright)+1:]
 			parsed.auth.Ripper = getNullStr(authBytes)
+		case "tlbl":
+			tlblBytes := nsfe[:chunkHdr.ChunkLen]
+			for len(tlblBytes) > 0 {
+				songName := getNullStr(tlblBytes)
+				parsed.tlbl.SongNames = append(parsed.tlbl.SongNames, songName)
+				tlblBytes = tlblBytes[len(songName)+1:]
+			}
 		default:
 			if chunkName[0] >= 'A' && chunkName[0] <= 'Z' {
-				return parsedNsfe{}, fmt.Errorf("unknown and required nsfe chunk %q", chunkName)
+				return nil, fmt.Errorf("unknown and required nsfe chunk %q", chunkName)
 			}
 		}
 		nsfe = nsfe[chunkHdr.ChunkLen:]
 	}
 	if !sawInfo {
-		return parsedNsfe{}, fmt.Errorf("bad nsfe, missing required chunk INFO")
+		return nil, fmt.Errorf("bad nsfe, missing required chunk INFO")
 	}
 	if !sawData {
-		return parsedNsfe{}, fmt.Errorf("bad nsfe, missing required chunk DATA")
+		return nil, fmt.Errorf("bad nsfe, missing required chunk DATA")
 	}
 	if !sawNend {
-		return parsedNsfe{}, fmt.Errorf("bad nsfe, missing required chunk NEND")
+		return nil, fmt.Errorf("bad nsfe, missing required chunk NEND")
 	}
 	for i := 0; i < int(parsed.info.NumSongs); i++ {
 		if i > len(parsed.time.SongLengths)-1 {
@@ -184,7 +191,7 @@ func parseNsfe(nsfe []byte) (parsedNsfe, error) {
 			parsed.tlbl.SongNames = append(parsed.tlbl.SongNames, "")
 		}
 	}
-	return parsed, nil
+	return &parsed, nil
 }
 
 type plstChunk struct{ Playlist []byte }
@@ -242,7 +249,7 @@ func parseNsf(nsf []byte) (nsfHeader, []byte, error) {
 // NewNsfPlayer creates an nsfPlayer session
 func NewNsfPlayer(nsf []byte) Emulator {
 
-	var nsfe parsedNsfe
+	var nsfe *parsedNsfe
 	var hdr nsfHeader
 	var data []byte
 	var err error
@@ -300,7 +307,7 @@ func NewNsfPlayer(nsf []byte) Emulator {
 		},
 		PlayCallInterval: playSpeed,
 		Hdr:              hdr,
-		HdrExtended:      &nsfe,
+		HdrExtended:      nsfe,
 		TvStdBit:         tvBit,
 	}
 	np.DbgTerminal = dbgTerminal{w: 256, h: 240, screen: np.DbgScreen[:]}
@@ -359,33 +366,47 @@ func (np *nsfPlayer) initTune(songNum byte) {
 
 func (np *nsfPlayer) updateScreen() {
 
+	np.DbgTerminal.clearScreen()
+
 	np.DbgTerminal.setPos(0, 1)
 	np.DbgTerminal.writeString("NSF Player\n")
 	np.DbgTerminal.newline()
-	np.DbgTerminal.writeString("Title: " + string(np.Hdr.SongName[:]) + "\n")
-	np.DbgTerminal.writeString("Artist: " + string(np.Hdr.ArtistName[:]) + "\n")
+	np.DbgTerminal.writeString(string(np.Hdr.SongName[:]) + "\n")
+	np.DbgTerminal.writeString(string(np.Hdr.ArtistName[:]) + "\n")
 	np.DbgTerminal.writeString(string(np.Hdr.CopyrightName[:]) + "\n")
 
-	np.DbgTerminal.clearLine()
-	np.DbgTerminal.writeString(fmt.Sprintf("Track %02d/%02d\n", np.CurrentSong+1, np.Hdr.NumSongs))
-
 	np.DbgTerminal.newline()
+
+	np.DbgTerminal.writeString(fmt.Sprintf("Track %02d/%02d\n", np.CurrentSong+1, np.Hdr.NumSongs))
 
 	nowTime := int(time.Now().Sub(np.CurrentSongStart).Seconds())
 	nowTimeStr := fmt.Sprintf("%02d:%02d", nowTime/60, nowTime%60)
 
-	endTimeStr := "??:??"
 	if np.CurrentSongLen > 0 {
+		endTimeStr := "??:??"
 		endTime := int(np.CurrentSongLen.Seconds())
 		endTimeStr = fmt.Sprintf("%02d:%02d", endTime/60, endTime%60)
+		np.DbgTerminal.writeString(fmt.Sprintf("%s/%s", nowTimeStr, endTimeStr))
+	} else {
+		np.DbgTerminal.writeString(fmt.Sprintf("%s", nowTimeStr))
 	}
-	np.DbgTerminal.writeString(fmt.Sprintf("%s/%s\n", nowTimeStr, endTimeStr))
 
-	np.DbgTerminal.newline()
-
-	np.DbgTerminal.clearLine()
 	if np.Paused {
-		np.DbgTerminal.writeString("*PAUSED*\n")
+		np.DbgTerminal.writeString(" *PAUSED*\n")
+	} else {
+		np.DbgTerminal.newline()
+	}
+
+	for i := 32; i < 127; i++ {
+		np.DbgTerminal.writeChar(rune(i))
+	}
+
+	if np.HdrExtended != nil {
+		title := np.HdrExtended.tlbl.SongNames[np.CurrentSong]
+		if len(title) > 28 {
+			title = title[:28] + "..."
+		}
+		np.DbgTerminal.writeString(title + "\n")
 	}
 	np.DbgFlipRequested = true
 }

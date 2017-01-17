@@ -416,7 +416,7 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 							if pattern != 0 {
 								if entry.OAMIndex == 0 {
 									if ppu.ShowBG && ppu.LineX != 255 {
-										if bgPattern != 0 {
+										if bgPattern != 0 && ppu.PPUCyclesSinceYInc >= 2 {
 											ppu.SpriteZeroHit = true
 										}
 									}

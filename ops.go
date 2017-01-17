@@ -231,6 +231,7 @@ func (cs *cpuState) stepOpcode() {
 
 	case 0x40: // RTI (return from interrupt)
 		cs.P = cs.pop() &^ (flagBrk | flagOnStack)
+		cs.LastStepsP = cs.P                         // no lag from RTI
 		cs.opFn(6, 0, func() { cs.PC = cs.pop16() }) // real instLen 1, but we don't want to step past newPC (unlike RTS)
 	case 0x41: // EOR (indirect,x)
 		addr := cs.getXPreIndexedAddr()

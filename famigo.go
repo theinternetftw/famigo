@@ -16,6 +16,7 @@ type cpuState struct {
 	P, A, X, Y, S byte
 
 	IRQ, BRK, NMI, RESET bool
+	LastStepsP           byte
 
 	Steps  uint64
 	Cycles uint64
@@ -150,6 +151,7 @@ func (cs *cpuState) handleInterrupts() {
 			cs.PC = cs.read16(0xfffe)
 		}
 	}
+	cs.LastStepsP = cs.P
 }
 
 func (cs *cpuState) push16(val uint16) {
@@ -173,7 +175,7 @@ func (cs *cpuState) pop() byte {
 }
 
 func (cs *cpuState) interruptsEnabled() bool {
-	return cs.P&flagIrqDisabled == 0
+	return cs.LastStepsP&flagIrqDisabled == 0
 }
 
 const (

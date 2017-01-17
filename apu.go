@@ -7,6 +7,10 @@ type apu struct {
 	FrameCounterManualTrigger      bool
 	FrameCounter                   uint64
 
+	lastSample            float64
+	lastCorrectedSample   float64
+	lastCorrectedTriangle float64
+
 	buffer apuCircleBuf
 
 	Pulse1   sound
@@ -180,13 +184,21 @@ func (apu *apu) runCycle(cs *cpuState) {
 		p1 := apu.Pulse1.getSample()
 		p2 := apu.Pulse2.getSample()
 		tri := apu.Triangle.getSample()
-
 		dmc := apu.DMC.getSample()
 		noise := apu.Noise.getSample()
+
+		apu.lastCorrectedTriangle = apu.lastCorrectedTriangle + 0.07*(float64(tri)-apu.lastCorrectedTriangle)
+		tri = byte(apu.lastCorrectedTriangle)
 
 		pSamples := 95.88 / (8128/(float64(p1)+float64(p2)) + 100)
 		tdnSamples := 159.79 / (1/(float64(tri)/8227+float64(noise)/12241+float64(dmc)/22638) + 100)
 		sample := pSamples + tdnSamples
+
+		// dc blocker to center waveform
+		correctedSample := sample - apu.lastSample + 0.995*apu.lastCorrectedSample
+		apu.lastCorrectedSample = correctedSample
+		apu.lastSample = sample
+		sample = correctedSample
 
 		left, right = sample, sample
 

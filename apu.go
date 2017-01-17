@@ -418,7 +418,7 @@ var lengthCounterTable = []byte{
 
 func (sound *sound) loadLengthCounter(regVal byte) {
 	if sound.On {
-		sound.LengthCounter = lengthCounterTable[regVal] + 1
+		sound.LengthCounter = lengthCounterTable[regVal]
 	}
 }
 

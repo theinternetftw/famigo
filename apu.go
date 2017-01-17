@@ -7,9 +7,8 @@ type apu struct {
 	FrameCounterManualTrigger      bool
 	FrameCounter                   uint64
 
-	lastSample            float64
-	lastCorrectedSample   float64
-	lastCorrectedTriangle float64
+	lastSample          float64
+	lastCorrectedSample float64
 
 	buffer apuCircleBuf
 
@@ -179,16 +178,11 @@ func (apu *apu) runCycle(cs *cpuState) {
 
 		left, right := 0.0, 0.0
 
-		apu.runFreqCycle(cs)
-
-		p1 := apu.Pulse1.getSample()
-		p2 := apu.Pulse2.getSample()
-		tri := apu.Triangle.getSample()
-		dmc := apu.DMC.getSample()
-		noise := apu.Noise.getSample()
-
-		apu.lastCorrectedTriangle = apu.lastCorrectedTriangle + 0.07*(float64(tri)-apu.lastCorrectedTriangle)
-		tri = byte(apu.lastCorrectedTriangle)
+		p1 := apu.Pulse1.getSample(cs)
+		p2 := apu.Pulse2.getSample(cs)
+		tri := apu.Triangle.getSample(cs)
+		dmc := apu.DMC.getSample(cs)
+		noise := apu.Noise.getSample(cs)
 
 		pSamples := 95.88 / (8128/(float64(p1)+float64(p2)) + 100)
 		tdnSamples := 159.79 / (1/(float64(tri)/8227+float64(noise)/12241+float64(dmc)/22638) + 100)
@@ -301,8 +295,8 @@ func (sound *sound) inDutyCycle() bool {
 }
 
 var triangleSampleTable = []byte{
-	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 	15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 }
 
 func (sound *sound) getTriangleSample() byte {
@@ -310,10 +304,11 @@ func (sound *sound) getTriangleSample() byte {
 	return val
 }
 
-func (sound *sound) getSample() byte {
+func (sound *sound) getSample(cs *cpuState) byte {
 	sample := byte(0)
 	switch sound.SoundType {
 	case squareSoundType:
+		sound.runFreqCycle(cs)
 		vol := sound.getCurrentVolume()
 		if sound.On && vol > 0 {
 			if sound.LengthCounter > 0 {
@@ -327,9 +322,11 @@ func (sound *sound) getSample() byte {
 	case triangleSoundType:
 		audible := sound.PeriodTimer >= 2 // not accurate, but eliminates annoying clicks
 		if sound.On && audible && sound.LengthCounter > 0 && sound.TriangleLinearCounter > 0 {
-			sample = sound.getTriangleSample()
+			sound.runFreqCycle(cs)
 		}
+		sample = sound.getTriangleSample()
 	case noiseSoundType:
+		sound.runFreqCycle(cs)
 		vol := sound.getCurrentVolume()
 		if sound.On && vol > 0 {
 			if sound.LengthCounter > 0 {
@@ -339,6 +336,7 @@ func (sound *sound) getSample() byte {
 			}
 		}
 	case dmcSoundType:
+		sound.runFreqCycle(cs)
 		sample = sound.DMCCurrentValue
 	}
 	return sample

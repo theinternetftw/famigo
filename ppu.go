@@ -10,6 +10,8 @@ type ppu struct {
 	UseUpperSpritePatternTable bool
 	IncrementStyleSelector     bool
 
+	ManuallyGenerateNMI bool
+
 	TempAddrReg uint16 // handles scroll, nametables... see ppu docs
 	AddrReg     uint16
 	FineScrollX byte
@@ -334,6 +336,12 @@ func (ppu *ppu) getFineScrollY() byte { return byte(ppu.AddrReg>>12) & 0x07 }
 var fineScrollXCopy byte
 
 func (ppu *ppu) runCycle(cs *cpuState) {
+
+	if ppu.ManuallyGenerateNMI {
+		ppu.ManuallyGenerateNMI = false
+		cs.NMI = true
+	}
+
 	if ppu.PPUCyclesSinceYInc == 1 {
 		if ppu.LineY == 241 {
 			ppu.FrameCounter++
@@ -484,6 +492,7 @@ func (ppu *ppu) setNametableSelector(val byte) {
 }
 
 func (ppu *ppu) writeControlReg(val byte) {
+	wasGenningVBlank := ppu.GenerateVBlankNMIs
 	boolsFromByte(val,
 		&ppu.GenerateVBlankNMIs,
 		&ppu.MasterSlaveExtSelector,
@@ -493,6 +502,11 @@ func (ppu *ppu) writeControlReg(val byte) {
 		&ppu.IncrementStyleSelector,
 		nil, nil,
 	)
+	if !wasGenningVBlank && ppu.GenerateVBlankNMIs {
+		if ppu.VBlankAlert {
+			ppu.ManuallyGenerateNMI = true
+		}
+	}
 	ppu.setNametableSelector(val & 0x03)
 	ppu.SharedReg = val
 }

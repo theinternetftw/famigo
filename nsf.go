@@ -331,6 +331,7 @@ func (np *nsfPlayer) initTune(songNum byte) {
 	for addr := uint16(0x4000); addr < 0x4014; addr++ {
 		np.write(addr, 0x00)
 	}
+	np.write(0x4015, 0x00) // silence tracks first
 	np.write(0x4015, 0x0f)
 	np.write(0x4017, 0x40)
 

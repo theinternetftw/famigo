@@ -598,6 +598,7 @@ func (sound *sound) writeDMCFlagsAndRate(val byte) {
 
 func (sound *sound) writeNoiseLength(val byte) {
 	sound.loadLengthCounter(val >> 3)
+	sound.VolumeRestart = true
 }
 
 func (sound *sound) writeNoiseControlReg(val byte) {

@@ -397,10 +397,6 @@ func (np *nsfPlayer) updateScreen() {
 		np.DbgTerminal.newline()
 	}
 
-	for i := 32; i < 127; i++ {
-		np.DbgTerminal.writeChar(rune(i))
-	}
-
 	if np.HdrExtended != nil {
 		title := np.HdrExtended.tlbl.SongNames[np.CurrentSong]
 		if len(title) > 28 {

@@ -73,21 +73,27 @@ func (ppu *ppu) yInRange(spriteY, testY byte) bool {
 
 func (ppu *ppu) parseOAM() {
 	ppu.OAMBeingParsed = ppu.OAMBeingParsed[:0]
-	for i := 0; len(ppu.OAMBeingParsed) < 8 && i < 64; i++ {
+	for i := 0; len(ppu.OAMBeingParsed) < 9 && i < 64; i++ {
 		spriteY := ppu.OAM[i*4]
 		if ppu.yInRange(spriteY, byte(ppu.LineY+1)) {
-			tileField := ppu.OAM[i*4+1]
-			attrByte := ppu.OAM[i*4+2]
-			ppu.OAMBeingParsed = append(ppu.OAMBeingParsed, oamEntry{
-				Y:         spriteY,
-				TileField: tileField,
-				FlipY:     attrByte&0x80 == 0x80,
-				FlipX:     attrByte&0x40 == 0x40,
-				BehindBG:  attrByte&0x20 == 0x20,
-				PaletteID: attrByte & 0x03,
-				X:         ppu.OAM[i*4+3],
-				OAMIndex:  byte(i),
-			})
+			if len(ppu.OAMBeingParsed) < 8 {
+				tileField := ppu.OAM[i*4+1]
+				attrByte := ppu.OAM[i*4+2]
+				ppu.OAMBeingParsed = append(ppu.OAMBeingParsed, oamEntry{
+					Y:         spriteY,
+					TileField: tileField,
+					FlipY:     attrByte&0x80 == 0x80,
+					FlipX:     attrByte&0x40 == 0x40,
+					BehindBG:  attrByte&0x20 == 0x20,
+					PaletteID: attrByte & 0x03,
+					X:         ppu.OAM[i*4+3],
+					OAMIndex:  byte(i),
+				})
+			} else {
+				// NOTE: overflow hw bug not yet implemented!
+				ppu.SpriteOverflow = true
+				break
+			}
 		}
 	}
 }

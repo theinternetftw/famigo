@@ -10,7 +10,9 @@ type ppu struct {
 	UseUpperSpritePatternTable bool
 	IncrementStyleSelector     bool
 
-	ManuallyGenerateNMI bool
+	ManuallyGenerateNMI               bool
+	ManuallyGenerateNMIWaitingForStep bool
+	ManuallyGenerateNMIStepRequested  uint64
 
 	TempAddrReg uint16 // handles scroll, nametables... see ppu docs
 	AddrReg     uint16
@@ -345,7 +347,14 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 
 	if ppu.ManuallyGenerateNMI {
 		ppu.ManuallyGenerateNMI = false
-		cs.NMI = true
+		ppu.ManuallyGenerateNMIWaitingForStep = true
+		ppu.ManuallyGenerateNMIStepRequested = cs.Steps
+	}
+	if ppu.ManuallyGenerateNMIWaitingForStep {
+		if cs.Steps > ppu.ManuallyGenerateNMIStepRequested {
+			ppu.ManuallyGenerateNMIWaitingForStep = false
+			cs.NMI = true
+		}
 	}
 
 	if ppu.PPUCyclesSinceYInc == 0 {

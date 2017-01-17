@@ -85,33 +85,33 @@ func (c *apuCircleBuf) full() bool       { return c.size() == uint(len(c.buf)) }
 func (apu *apu) runFrameCounterCycle() {
 	if apu.FrameCounterSequencerMode == 0 {
 		c := apu.FrameCounter
-		if c == 3728 || c == 7456 || c == 11185 || c == 14914 {
+		if c == 2*3728+1 || c == 2*7456+1 || c == 2*11185+1 || c == 2*14914+1 {
 			apu.runEnvCycle()
 			apu.Triangle.runTriangleLengthCycle()
 		}
-		if c == 7456 || c == 14914 {
+		if c == 2*7456+1 || c == 2*14914+1 {
 			apu.runLengthCycle()
 			apu.runSweepCycle()
 		}
-		if c == 14914 {
+		if c == 2*14914 || c == 2*14914+1 || c == 2*14915 {
 			if !apu.FrameCounterInterruptInhibit {
 				apu.FrameCounterInterruptRequested = true
 			}
 		}
-		if c == 14915 {
+		if c == 2*14915 {
 			apu.FrameCounter = 0
 		}
 	} else {
 		c := apu.FrameCounter
-		if c == 3728 || c == 7456 || c == 11185 || c == 18640 {
+		if c == 2*3728+1 || c == 2*7456+1 || c == 2*11185+1 || c == 2*18640+1 {
 			apu.runEnvCycle()
 			apu.Triangle.runTriangleLengthCycle()
 		}
-		if c == 7456 || c == 18640 {
+		if c == 2*7456+1 || c == 2*18640+1 {
 			apu.runLengthCycle()
 			apu.runSweepCycle()
 		}
-		if c == 18641 {
+		if c == 2*18641 {
 			apu.FrameCounter = 0
 		}
 	}

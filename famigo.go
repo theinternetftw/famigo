@@ -74,9 +74,7 @@ func (cs *cpuState) runCycles(cycles uint) {
 		for j := 0; j < 3; j++ {
 			cs.PPU.runCycle(cs) // ppu clock is 3x cpu
 		}
-		if cs.Cycles&0x01 == 0x01 {
-			cs.APU.runCycle(cs)
-		}
+		cs.APU.runCycle(cs)
 		cs.Mem.MMC.RunCycle(cs)
 		cs.Cycles++
 	}

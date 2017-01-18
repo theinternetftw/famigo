@@ -88,7 +88,7 @@ func (m *mapper000) Read(mem *mem, addr uint16) byte {
 func (m *mapper000) Write(mem *mem, addr uint16, val byte) {
 	if addr >= 0x6000 && addr < 0x8000 {
 		realAddr := (int(addr) - 0x6000) & (len(mem.PrgRAM) - 1)
-		if realAddr < len(mem.PrgRAM)-1 {
+		if realAddr < len(mem.PrgRAM) {
 			mem.PrgRAM[realAddr] = val
 		}
 	}
@@ -216,7 +216,7 @@ func (m *mapper001) Write(mem *mem, addr uint16, val byte) {
 		// will crash if no RAM, but should be fine
 		realAddr := 8*1024*m.PrgRAMBankNumber + int(addr-0x6000)
 		realAddr &= len(mem.PrgRAM) - 1
-		if realAddr < len(mem.PrgRAM)-1 {
+		if realAddr < len(mem.PrgRAM) {
 			mem.PrgRAM[realAddr] = val
 		}
 	} else if addr >= 0x8000 {
@@ -395,7 +395,7 @@ func (m *mapper002) Read(mem *mem, addr uint16) byte {
 func (m *mapper002) Write(mem *mem, addr uint16, val byte) {
 	if addr >= 0x6000 && addr < 0x8000 {
 		realAddr := (int(addr) - 0x6000) & (len(mem.PrgRAM) - 1)
-		if realAddr < len(mem.PrgRAM)-1 {
+		if realAddr < len(mem.PrgRAM) {
 			mem.PrgRAM[realAddr] = val
 		}
 	}
@@ -471,7 +471,7 @@ func (m *mapper003) Read(mem *mem, addr uint16) byte {
 func (m *mapper003) Write(mem *mem, addr uint16, val byte) {
 	if addr >= 0x6000 && addr < 0x8000 {
 		realAddr := (int(addr) - 0x6000) & (len(mem.PrgRAM) - 1)
-		if realAddr < len(mem.PrgRAM)-1 {
+		if realAddr < len(mem.PrgRAM) {
 			mem.PrgRAM[realAddr] = val
 		}
 	}
@@ -603,7 +603,7 @@ func (m *mapper004) Read(mem *mem, addr uint16) byte {
 func (m *mapper004) Write(mem *mem, addr uint16, val byte) {
 	if addr >= 0x6000 && addr < 0x8000 {
 		realAddr := (int(addr) - 0x6000) & (len(mem.PrgRAM) - 1)
-		if realAddr < len(mem.PrgRAM)-1 {
+		if realAddr < len(mem.PrgRAM) {
 			mem.PrgRAM[realAddr] = val
 		}
 	}

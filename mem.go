@@ -3,10 +3,10 @@ package famigo
 import "fmt"
 
 type mem struct {
-	MMC          mmc
-	PrgROM       []byte
+	mmc          mmc
+	prgROM       []byte
+	chrROM       []byte
 	PrgRAM       []byte
-	ChrROM       []byte
 	InternalVRAM [0x0800]byte
 	InternalRAM  [0x0800]byte
 }
@@ -33,7 +33,7 @@ func (cs *cpuState) read(addr uint16) byte {
 	case addr >= 0x4018 && addr < 0x4020:
 		emuErr(fmt.Sprintf("CPU test mode not implemented, read at %04x", addr))
 	case addr >= 0x4020:
-		val = cs.Mem.MMC.Read(&cs.Mem, addr)
+		val = cs.Mem.mmc.Read(&cs.Mem, addr)
 	default:
 		emuErr(fmt.Sprintf("unimplemented read: %v", addr))
 	}
@@ -116,7 +116,7 @@ func (cs *cpuState) write(addr uint16, val byte) {
 	case addr >= 0x4018 && addr < 0x4020:
 		emuErr(fmt.Sprintf("CPU test not implemented, write(0x%04x, 0x%02x)", addr, val))
 	case addr >= 0x4020:
-		cs.Mem.MMC.Write(&cs.Mem, addr, val)
+		cs.Mem.mmc.Write(&cs.Mem, addr, val)
 	default:
 		emuErr(fmt.Sprintf("unimplemented: write(0x%04x, 0x%02x)", addr, val))
 	}

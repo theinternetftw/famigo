@@ -1,6 +1,9 @@
 package famigo
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 func makeMMC(cartInfo *CartInfo) mmc {
 	mapperNum := cartInfo.GetMapperNumber()
@@ -47,6 +50,50 @@ type mmc interface {
 	ReadVRAM(mem *mem, addr uint16) byte
 	WriteVRAM(mem *mem, addr uint16, val byte)
 	RunCycle(cpu *cpuState)
+
+	Marshal() marshalledMMC
+}
+
+func unmarshalMMC(m marshalledMMC) (mmc, error) {
+	var mmc mmc
+	switch m.Number {
+	case 0:
+		mmc = &mapper000{}
+	case 1:
+		mmc = &mapper001{}
+	case 2:
+		mmc = &mapper002{}
+	case 3:
+		mmc = &mapper003{}
+	case 4:
+		mmc = &mapper004{}
+	case 7:
+		mmc = &mapper007{}
+	case 31:
+		mmc = &mapper031{}
+	default:
+		return nil, fmt.Errorf("state contained unknown mapper number %v", m.Number)
+	}
+	if err := json.Unmarshal(m.Data, &mmc); err != nil {
+		return nil, err
+	}
+	return mmc, nil
+}
+
+type marshalledMMC struct {
+	Number uint32
+	Data   []byte
+}
+
+func marshalMMC(number uint32, mmc mmc) marshalledMMC {
+	rawJSON, err := json.Marshal(mmc)
+	if err != nil {
+		panic(err)
+	}
+	return marshalledMMC{
+		Number: number,
+		Data:   rawJSON,
+	}
 }
 
 func vertMirrorVRAMAddr(addr uint16) uint16 {
@@ -71,8 +118,9 @@ type mapper000 struct {
 	IsChrRAM      bool
 }
 
-func (m *mapper000) Init(mem *mem)         {}
-func (m *mapper000) RunCycle(cs *cpuState) {}
+func (m *mapper000) Init(mem *mem)          {}
+func (m *mapper000) RunCycle(cs *cpuState)  {}
+func (m *mapper000) Marshal() marshalledMMC { return marshalMMC(0, m) }
 
 func (m *mapper000) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
@@ -80,7 +128,7 @@ func (m *mapper000) Read(mem *mem, addr uint16) byte {
 		return mem.PrgRAM[(int(addr)-0x6000)&(len(mem.PrgRAM)-1)]
 	}
 	if addr >= 0x8000 {
-		return mem.PrgROM[(int(addr)-0x8000)&(len(mem.PrgROM)-1)]
+		return mem.prgROM[(int(addr)-0x8000)&(len(mem.prgROM)-1)]
 	}
 	return 0xff
 }
@@ -101,7 +149,7 @@ func (m *mapper000) ReadVRAM(mem *mem, addr uint16) byte {
 	var val byte
 	switch {
 	case addr < 0x2000:
-		val = mem.ChrROM[addr]
+		val = mem.chrROM[addr]
 	case addr >= 0x2000 && addr < 0x3000:
 		var realAddr uint16
 		if m.VramMirroring == VerticalMirroring {
@@ -122,7 +170,7 @@ func (m *mapper000) WriteVRAM(mem *mem, addr uint16, val byte) {
 	switch {
 	case addr < 0x2000:
 		if m.IsChrRAM {
-			mem.ChrROM[addr] = val
+			mem.chrROM[addr] = val
 		}
 	case addr >= 0x2000 && addr < 0x3000:
 		var realAddr uint16
@@ -172,7 +220,8 @@ const (
 func (m *mapper001) Init(mem *mem) {
 	m.PrgBankMode = lastBankFixed
 }
-func (m *mapper001) RunCycle(cs *cpuState) {}
+func (m *mapper001) RunCycle(cs *cpuState)  {}
+func (m *mapper001) Marshal() marshalledMMC { return marshalMMC(1, m) }
 
 func (m *mapper001) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
@@ -185,26 +234,26 @@ func (m *mapper001) Read(mem *mem, addr uint16) byte {
 		switch m.PrgBankMode {
 		case oneBigBank:
 			realAddr := 256*1024*m.PrgBankNumber256 + 16*1024*m.PrgBankNumber + int(addr-0x8000)
-			return mem.PrgROM[realAddr]
+			return mem.prgROM[realAddr]
 		case firstBankFixed:
 			if addr < 0xc000 {
 				realAddr := 256*1024*m.PrgBankNumber256 + int(addr-0x8000)
-				return mem.PrgROM[realAddr]
+				return mem.prgROM[realAddr]
 			}
 			realAddr := 256*1024*m.PrgBankNumber256 + 16*1024*m.PrgBankNumber + int(addr-0xc000)
-			return mem.PrgROM[realAddr]
+			return mem.prgROM[realAddr]
 		case lastBankFixed:
 			if addr >= 0xc000 {
 				var lastBankStart int
-				if len(mem.PrgROM) > 256*1024 && m.PrgBankNumber256 == 0 {
+				if len(mem.prgROM) > 256*1024 && m.PrgBankNumber256 == 0 {
 					lastBankStart = 256*1024 - 16*1024
 				} else {
-					lastBankStart = len(mem.PrgROM) - (16 * 1024)
+					lastBankStart = len(mem.prgROM) - (16 * 1024)
 				}
-				return mem.PrgROM[lastBankStart+int(addr-0xc000)]
+				return mem.prgROM[lastBankStart+int(addr-0xc000)]
 			}
 			realAddr := 256*1024*m.PrgBankNumber256 + 16*1024*m.PrgBankNumber + int(addr-0x8000)
-			return mem.PrgROM[realAddr]
+			return mem.prgROM[realAddr]
 		}
 	}
 	return 0xff
@@ -276,34 +325,34 @@ func (m *mapper001) writeReg(mem *mem, addr uint16, val byte) {
 			val &^= 0x01
 		}
 		chrBankNum := int(val)
-		if len(mem.PrgROM) > 256*1024 {
+		if len(mem.prgROM) > 256*1024 {
 			m.PrgBankNumber256 = int(val>>4) & 0x01
 			chrBankNum &= 0x0f
 		}
-		if len(mem.ChrROM) == 8*1024 {
+		if len(mem.chrROM) == 8*1024 {
 			chrBankNum &= 0x01
-			if len(mem.PrgROM) <= 256*1024 {
+			if len(mem.prgROM) <= 256*1024 {
 				// impl ram disable here, if desired
 			}
 			m.PrgRAMBankNumber = int(val>>2) & 0x03
 		}
-		m.ChrBank0Number = chrBankNum & (len(mem.ChrROM)/(4*1024) - 1)
+		m.ChrBank0Number = chrBankNum & (len(mem.chrROM)/(4*1024) - 1)
 
 	case addr >= 0xc000 && addr < 0xe000:
 		if m.ChrBankMode != oneBank {
 			chrBankNum := int(val)
-			if len(mem.PrgROM) > 256*1024 {
+			if len(mem.prgROM) > 256*1024 {
 				m.PrgBankNumber256 = int(val>>4) & 0x01
 				chrBankNum &= 0x0f
 			}
-			if len(mem.ChrROM) == 8*1024 {
+			if len(mem.chrROM) == 8*1024 {
 				chrBankNum &= 0x01
-				if len(mem.PrgROM) <= 256*1024 {
+				if len(mem.prgROM) <= 256*1024 {
 					// impl ram disable here, if desired
 				}
 				m.PrgRAMBankNumber = int(val>>2) & 0x03
 			}
-			m.ChrBank1Number = chrBankNum & (len(mem.ChrROM)/(4*1024) - 1)
+			m.ChrBank1Number = chrBankNum & (len(mem.chrROM)/(4*1024) - 1)
 		}
 
 	case addr >= 0xe000:
@@ -311,11 +360,11 @@ func (m *mapper001) writeReg(mem *mem, addr uint16, val byte) {
 		if m.PrgBankMode == oneBigBank {
 			val &^= 0x01
 		}
-		m.PrgBankNumber = int(val&0x0f) & (len(mem.PrgROM)/(16*1024) - 1)
+		m.PrgBankNumber = int(val&0x0f) & (len(mem.prgROM)/(16*1024) - 1)
 	}
 }
 
-func (m *mapper001) getChrROMAddr(addr uint16) int {
+func (m *mapper001) getchrROMAddr(addr uint16) int {
 	if m.ChrBankMode == oneBank || addr < 0x1000 {
 		return int(m.ChrBank0Number)*1024*4 + int(addr)
 	}
@@ -326,8 +375,8 @@ func (m *mapper001) ReadVRAM(mem *mem, addr uint16) byte {
 	var val byte
 	switch {
 	case addr < 0x2000:
-		realAddr := m.getChrROMAddr(addr)
-		val = mem.ChrROM[realAddr]
+		realAddr := m.getchrROMAddr(addr)
+		val = mem.chrROM[realAddr]
 	case addr >= 0x2000 && addr < 0x3000:
 		switch m.VramMirroring {
 		case OneScreenLowerMirroring:
@@ -352,7 +401,7 @@ func (m *mapper001) WriteVRAM(mem *mem, addr uint16, val byte) {
 	case addr < 0x2000:
 		// NOTE: this ignores the difference between CHR ROM and CHR RAM
 		if m.IsChrRAM {
-			mem.ChrROM[m.getChrROMAddr(addr)] = val
+			mem.chrROM[m.getchrROMAddr(addr)] = val
 		}
 	case addr >= 0x2000 && addr < 0x3000:
 		switch m.VramMirroring {
@@ -378,8 +427,9 @@ type mapper002 struct {
 	IsChrRAM      bool
 }
 
-func (m *mapper002) Init(mem *mem)         {}
-func (m *mapper002) RunCycle(cs *cpuState) {}
+func (m *mapper002) Init(mem *mem)          {}
+func (m *mapper002) RunCycle(cs *cpuState)  {}
+func (m *mapper002) Marshal() marshalledMMC { return marshalMMC(2, m) }
 
 func (m *mapper002) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
@@ -387,9 +437,9 @@ func (m *mapper002) Read(mem *mem, addr uint16) byte {
 		return mem.PrgRAM[(int(addr)-0x6000)&(len(mem.PrgRAM)-1)]
 	}
 	if addr >= 0x8000 && addr < 0xc000 {
-		return mem.PrgROM[m.PrgBankNumber*16*1024+int(addr-0x8000)]
+		return mem.prgROM[m.PrgBankNumber*16*1024+int(addr-0x8000)]
 	}
-	return mem.PrgROM[(len(mem.PrgROM)-16*1024)+int(addr-0xc000)]
+	return mem.prgROM[(len(mem.prgROM)-16*1024)+int(addr-0xc000)]
 }
 
 func (m *mapper002) Write(mem *mem, addr uint16, val byte) {
@@ -401,7 +451,7 @@ func (m *mapper002) Write(mem *mem, addr uint16, val byte) {
 	}
 	if addr >= 0x8000 {
 		m.PrgBankNumber = int(val)
-		m.PrgBankNumber &= len(mem.PrgROM)/(16*1024) - 1
+		m.PrgBankNumber &= len(mem.prgROM)/(16*1024) - 1
 	}
 }
 
@@ -409,7 +459,7 @@ func (m *mapper002) ReadVRAM(mem *mem, addr uint16) byte {
 	var val byte
 	switch {
 	case addr < 0x2000:
-		val = mem.ChrROM[addr]
+		val = mem.chrROM[addr]
 	case addr >= 0x2000 && addr < 0x3000:
 		var realAddr uint16
 		if m.VramMirroring == VerticalMirroring {
@@ -430,7 +480,7 @@ func (m *mapper002) WriteVRAM(mem *mem, addr uint16, val byte) {
 	switch {
 	case addr < 0x2000:
 		if m.IsChrRAM {
-			mem.ChrROM[addr] = val
+			mem.chrROM[addr] = val
 		}
 	case addr >= 0x2000 && addr < 0x3000:
 		var realAddr uint16
@@ -455,7 +505,8 @@ type mapper003 struct {
 
 func (m *mapper003) Init(mem *mem) {}
 
-func (m *mapper003) RunCycle(cs *cpuState) {}
+func (m *mapper003) RunCycle(cs *cpuState)  {}
+func (m *mapper003) Marshal() marshalledMMC { return marshalMMC(3, m) }
 
 func (m *mapper003) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
@@ -463,7 +514,7 @@ func (m *mapper003) Read(mem *mem, addr uint16) byte {
 		return mem.PrgRAM[(int(addr)-0x6000)&(len(mem.PrgRAM)-1)]
 	}
 	if addr >= 0x8000 {
-		return mem.PrgROM[(int(addr)-0x8000)&(len(mem.PrgROM)-1)]
+		return mem.prgROM[(int(addr)-0x8000)&(len(mem.prgROM)-1)]
 	}
 	return 0xff
 }
@@ -477,7 +528,7 @@ func (m *mapper003) Write(mem *mem, addr uint16, val byte) {
 	}
 	if addr >= 0x8000 {
 		m.ChrBankNumber = int(val)
-		m.ChrBankNumber &= len(mem.ChrROM)/(8*1024) - 1
+		m.ChrBankNumber &= len(mem.chrROM)/(8*1024) - 1
 	}
 }
 
@@ -486,7 +537,7 @@ func (m *mapper003) ReadVRAM(mem *mem, addr uint16) byte {
 	switch {
 	case addr < 0x2000:
 		realAddr := int(m.ChrBankNumber)*1024*8 + int(addr)
-		val = mem.ChrROM[realAddr]
+		val = mem.chrROM[realAddr]
 	case addr >= 0x2000 && addr < 0x3000:
 		var realAddr uint16
 		if m.VramMirroring == VerticalMirroring {
@@ -508,7 +559,7 @@ func (m *mapper003) WriteVRAM(mem *mem, addr uint16, val byte) {
 	case addr < 0x2000:
 		if m.IsChrRAM {
 			realAddr := int(m.ChrBankNumber)*1024*8 + int(addr)
-			mem.ChrROM[realAddr] = val
+			mem.chrROM[realAddr] = val
 		}
 	case addr >= 0x2000 && addr < 0x3000:
 		var realAddr uint16
@@ -552,7 +603,8 @@ type mapper004 struct {
 	IRQEnabled                bool
 }
 
-func (m *mapper004) Init(mem *mem) {}
+func (m *mapper004) Init(mem *mem)          {}
+func (m *mapper004) Marshal() marshalledMMC { return marshalMMC(4, m) }
 
 func (m *mapper004) RunCycle(cs *cpuState) {
 	endOfScanline := 260
@@ -580,24 +632,24 @@ func (m *mapper004) Read(mem *mem, addr uint16) byte {
 	}
 	if addr >= 0x8000 && addr < 0xa000 {
 		if m.PrgLowerBankIsLocked {
-			offset := len(mem.PrgROM) - 2*8*1024 // second to last bank
-			return mem.PrgROM[offset+int(addr-0x8000)]
+			offset := len(mem.prgROM) - 2*8*1024 // second to last bank
+			return mem.prgROM[offset+int(addr-0x8000)]
 		}
-		return mem.PrgROM[1024*8*m.PrgBank0Number+int(addr-0x8000)]
+		return mem.prgROM[1024*8*m.PrgBank0Number+int(addr-0x8000)]
 	}
 	if addr >= 0xa000 && addr < 0xc000 {
-		return mem.PrgROM[1024*8*m.PrgBank1Number+int(addr-0xa000)]
+		return mem.prgROM[1024*8*m.PrgBank1Number+int(addr-0xa000)]
 	}
 	if addr >= 0xc000 && addr < 0xe000 {
 		if m.PrgLowerBankIsLocked {
-			return mem.PrgROM[1024*8*m.PrgBank0Number+int(addr-0xc000)]
+			return mem.prgROM[1024*8*m.PrgBank0Number+int(addr-0xc000)]
 		}
-		offset := len(mem.PrgROM) - 2*8*1024 // second to last bank
-		return mem.PrgROM[offset+int(addr-0xc000)]
+		offset := len(mem.prgROM) - 2*8*1024 // second to last bank
+		return mem.prgROM[offset+int(addr-0xc000)]
 	}
 	// addr > 0xe000
-	offset := len(mem.PrgROM) - 8*1024 // last bank
-	return mem.PrgROM[offset+int(addr-0xe000)]
+	offset := len(mem.prgROM) - 8*1024 // last bank
+	return mem.prgROM[offset+int(addr-0xe000)]
 }
 
 func (m *mapper004) Write(mem *mem, addr uint16, val byte) {
@@ -626,9 +678,9 @@ func (m *mapper004) Write(mem *mem, addr uint16, val byte) {
 			}[m.BankWriteSelector]
 			*bankNumReg = int(val)
 			if m.BankWriteSelector < 6 {
-				*bankNumReg &= len(mem.ChrROM)/1024 - 1
+				*bankNumReg &= len(mem.chrROM)/1024 - 1
 			} else {
-				*bankNumReg &= len(mem.PrgROM)/(8*1024) - 1
+				*bankNumReg &= len(mem.prgROM)/(8*1024) - 1
 			}
 		}
 	}
@@ -670,7 +722,7 @@ func (m *mapper004) ReadVRAM(mem *mem, addr uint16) byte {
 		} else {
 			offset = (m.ChrBank0Number &^ 0x01) * 1024
 		}
-		val = mem.ChrROM[offset+int(addr)]
+		val = mem.chrROM[offset+int(addr)]
 	case addr >= 0x0400 && addr < 0x0800:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -678,7 +730,7 @@ func (m *mapper004) ReadVRAM(mem *mem, addr uint16) byte {
 		} else {
 			offset = (m.ChrBank0Number | 0x01) * 1024
 		}
-		val = mem.ChrROM[offset+int(addr-0x0400)]
+		val = mem.chrROM[offset+int(addr-0x0400)]
 	case addr >= 0x0800 && addr < 0x0c00:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -686,7 +738,7 @@ func (m *mapper004) ReadVRAM(mem *mem, addr uint16) byte {
 		} else {
 			offset = (m.ChrBank1Number &^ 0x01) * 1024
 		}
-		val = mem.ChrROM[offset+int(addr-0x0800)]
+		val = mem.chrROM[offset+int(addr-0x0800)]
 	case addr >= 0x0c00 && addr < 0x1000:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -694,7 +746,7 @@ func (m *mapper004) ReadVRAM(mem *mem, addr uint16) byte {
 		} else {
 			offset = (m.ChrBank1Number | 0x01) * 1024
 		}
-		val = mem.ChrROM[offset+int(addr-0x0c00)]
+		val = mem.chrROM[offset+int(addr-0x0c00)]
 	case addr >= 0x1000 && addr < 0x1400:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -702,7 +754,7 @@ func (m *mapper004) ReadVRAM(mem *mem, addr uint16) byte {
 		} else {
 			offset = m.ChrBank2Number * 1024
 		}
-		val = mem.ChrROM[offset+int(addr-0x1000)]
+		val = mem.chrROM[offset+int(addr-0x1000)]
 	case addr >= 0x1400 && addr < 0x1800:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -710,7 +762,7 @@ func (m *mapper004) ReadVRAM(mem *mem, addr uint16) byte {
 		} else {
 			offset = m.ChrBank3Number * 1024
 		}
-		val = mem.ChrROM[offset+int(addr-0x1400)]
+		val = mem.chrROM[offset+int(addr-0x1400)]
 	case addr >= 0x1800 && addr < 0x1c00:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -718,7 +770,7 @@ func (m *mapper004) ReadVRAM(mem *mem, addr uint16) byte {
 		} else {
 			offset = m.ChrBank4Number * 1024
 		}
-		val = mem.ChrROM[offset+int(addr-0x1800)]
+		val = mem.chrROM[offset+int(addr-0x1800)]
 	case addr >= 0x1c00 && addr < 0x2000:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -726,7 +778,7 @@ func (m *mapper004) ReadVRAM(mem *mem, addr uint16) byte {
 		} else {
 			offset = m.ChrBank5Number * 1024
 		}
-		val = mem.ChrROM[offset+int(addr-0x1c00)]
+		val = mem.chrROM[offset+int(addr-0x1c00)]
 	case addr >= 0x2000 && addr < 0x3000:
 		var realAddr uint16
 		if m.VramMirroring == VerticalMirroring {
@@ -752,7 +804,7 @@ func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else {
 			offset = (m.ChrBank0Number &^ 0x01) * 1024
 		}
-		mem.ChrROM[offset+int(addr)] = val
+		mem.chrROM[offset+int(addr)] = val
 	case addr >= 0x0400 && addr < 0x0800:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -760,7 +812,7 @@ func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else {
 			offset = (m.ChrBank0Number | 0x01) * 1024
 		}
-		mem.ChrROM[offset+int(addr-0x0400)] = val
+		mem.chrROM[offset+int(addr-0x0400)] = val
 	case addr >= 0x0800 && addr < 0x0c00:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -768,7 +820,7 @@ func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else {
 			offset = (m.ChrBank1Number &^ 0x01) * 1024
 		}
-		mem.ChrROM[offset+int(addr-0x0800)] = val
+		mem.chrROM[offset+int(addr-0x0800)] = val
 	case addr >= 0x0c00 && addr < 0x1000:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -776,7 +828,7 @@ func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else {
 			offset = (m.ChrBank1Number | 0x01) * 1024
 		}
-		mem.ChrROM[offset+int(addr-0x0c00)] = val
+		mem.chrROM[offset+int(addr-0x0c00)] = val
 	case addr >= 0x1000 && addr < 0x1400:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -784,7 +836,7 @@ func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else {
 			offset = m.ChrBank2Number * 1024
 		}
-		mem.ChrROM[offset+int(addr-0x1000)] = val
+		mem.chrROM[offset+int(addr-0x1000)] = val
 	case addr >= 0x1400 && addr < 0x1800:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -792,7 +844,7 @@ func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else {
 			offset = m.ChrBank3Number * 1024
 		}
-		mem.ChrROM[offset+int(addr-0x1400)] = val
+		mem.chrROM[offset+int(addr-0x1400)] = val
 	case addr >= 0x1800 && addr < 0x1c00:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -800,7 +852,7 @@ func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else {
 			offset = m.ChrBank4Number * 1024
 		}
-		mem.ChrROM[offset+int(addr-0x1800)] = val
+		mem.chrROM[offset+int(addr-0x1800)] = val
 	case addr >= 0x1c00 && addr < 0x2000:
 		var offset int
 		if m.ChrUpperBanksAreBigger {
@@ -808,7 +860,7 @@ func (m *mapper004) WriteVRAM(mem *mem, addr uint16, val byte) {
 		} else {
 			offset = m.ChrBank5Number * 1024
 		}
-		mem.ChrROM[offset+int(addr-0x1c00)] = val
+		mem.chrROM[offset+int(addr-0x1c00)] = val
 	case addr >= 0x2000 && addr < 0x3000:
 		var realAddr uint16
 		if m.VramMirroring == VerticalMirroring {
@@ -833,7 +885,8 @@ func (m *mapper007) Init(mem *mem) {
 	m.VramMirroring = OneScreenLowerMirroring
 }
 
-func (m *mapper007) RunCycle(cs *cpuState) {}
+func (m *mapper007) RunCycle(cs *cpuState)  {}
+func (m *mapper007) Marshal() marshalledMMC { return marshalMMC(7, m) }
 
 func (m *mapper007) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
@@ -842,7 +895,7 @@ func (m *mapper007) Read(mem *mem, addr uint16) byte {
 	}
 	if addr >= 0x8000 {
 		offset := m.PrgBankNumber * 32 * 1024
-		return mem.PrgROM[offset+int(addr-0x8000)]
+		return mem.prgROM[offset+int(addr-0x8000)]
 	}
 	panic("impossible case")
 }
@@ -853,7 +906,7 @@ func (m *mapper007) Write(mem *mem, addr uint16, val byte) {
 	}
 	if addr >= 0x8000 {
 		m.PrgBankNumber = int(val & 0x07)
-		m.PrgBankNumber &= len(mem.PrgROM)/(32*1024) - 1
+		m.PrgBankNumber &= len(mem.prgROM)/(32*1024) - 1
 		if val&0x10 == 0x10 {
 			m.VramMirroring = OneScreenUpperMirroring
 		} else {
@@ -866,7 +919,7 @@ func (m *mapper007) ReadVRAM(mem *mem, addr uint16) byte {
 	var val byte
 	switch {
 	case addr < 0x2000:
-		val = mem.ChrROM[addr]
+		val = mem.chrROM[addr]
 	case addr >= 0x2000 && addr < 0x3000:
 		switch m.VramMirroring {
 		case OneScreenLowerMirroring:
@@ -885,7 +938,7 @@ func (m *mapper007) ReadVRAM(mem *mem, addr uint16) byte {
 func (m *mapper007) WriteVRAM(mem *mem, addr uint16, val byte) {
 	switch {
 	case addr < 0x2000:
-		mem.ChrROM[addr] = val
+		mem.chrROM[addr] = val
 	case addr >= 0x2000 && addr < 0x3000:
 		switch m.VramMirroring {
 		case OneScreenLowerMirroring:
@@ -908,10 +961,11 @@ type mapper031 struct {
 }
 
 func (m *mapper031) Init(mem *mem) {
-	m.bankNumSlots[7] = len(mem.PrgROM)/(4*1024) - 1
+	m.bankNumSlots[7] = len(mem.prgROM)/(4*1024) - 1
 }
 
-func (m *mapper031) RunCycle(cs *cpuState) {}
+func (m *mapper031) RunCycle(cs *cpuState)  {}
+func (m *mapper031) Marshal() marshalledMMC { return marshalMMC(31, m) }
 
 func (m *mapper031) Read(mem *mem, addr uint16) byte {
 	if addr >= 0x6000 && addr < 0x8000 {
@@ -923,7 +977,7 @@ func (m *mapper031) Read(mem *mem, addr uint16) byte {
 		offset := m.bankNumSlots[slotNum] * (4 * 1024)
 		strippedAddr := int(addr - 0x8000 - (0x1000 * slotNum))
 		realAddr := offset + strippedAddr
-		return mem.PrgROM[realAddr]
+		return mem.prgROM[realAddr]
 	}
 	return 0xff
 }
@@ -941,7 +995,7 @@ func (m *mapper031) ReadVRAM(mem *mem, addr uint16) byte {
 	var val byte
 	switch {
 	case addr < 0x2000:
-		val = mem.ChrROM[addr]
+		val = mem.chrROM[addr]
 	case addr >= 0x2000 && addr < 0x3000:
 		var realAddr uint16
 		if m.VramMirroring == VerticalMirroring {
@@ -962,7 +1016,7 @@ func (m *mapper031) WriteVRAM(mem *mem, addr uint16, val byte) {
 	switch {
 	case addr < 0x2000:
 		if m.IsChrRAM {
-			mem.ChrROM[addr] = val
+			mem.chrROM[addr] = val
 		}
 	case addr >= 0x2000 && addr < 0x3000:
 		var realAddr uint16

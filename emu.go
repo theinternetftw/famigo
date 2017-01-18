@@ -6,6 +6,9 @@ import "fmt"
 type Emulator interface {
 	Step()
 
+	MakeSnapshot() []byte
+	LoadSnapshot([]byte) (Emulator, error)
+
 	SetPrgRAM([]byte) error
 	GetPrgRAM() []byte
 
@@ -25,6 +28,14 @@ type Input struct {
 // NewEmulator creates an emulation session
 func NewEmulator(cart []byte) Emulator {
 	return newState(cart)
+}
+
+func (cs *cpuState) MakeSnapshot() []byte {
+	return cs.makeSnapshot()
+}
+
+func (cs *cpuState) LoadSnapshot(snapBytes []byte) (Emulator, error) {
+	return cs.loadSnapshot(snapBytes)
 }
 
 // GetSoundBuffer returns a 44100hz * 16bit * 2ch sound buffer.

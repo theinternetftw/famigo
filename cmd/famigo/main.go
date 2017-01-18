@@ -53,6 +53,8 @@ func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator
 	lastVBlankTime := time.Now()
 	lastSaveTime := time.Now()
 
+	snapshotPrefix := filename + ".snapshot"
+
 	saveFilename := filename + ".sav"
 	if saveFile, err := ioutil.ReadFile(saveFilename); err == nil {
 		err = emu.SetPrgRAM(saveFile)
@@ -66,6 +68,8 @@ func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator
 	workingAudioBuffer := make([]byte, audio.BufferSize())
 	dieIf(err)
 
+	snapshotMode := 'x'
+
 	for {
 		window.Mutex.Lock()
 		newInput := famigo.Input {
@@ -76,7 +80,43 @@ func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator
 				A:    window.CharIsDown('k'), B:     window.CharIsDown('j'),
 			},
 		}
+		numDown := 'x'
+		for r := '0'; r <= '9'; r++ {
+			if window.CharIsDown(r) {
+				numDown = r
+				break
+			}
+		}
+		if window.CharIsDown('m') {
+			snapshotMode = 'm'
+		} else if window.CharIsDown('l') {
+			snapshotMode = 'l'
+		}
 		window.Mutex.Unlock()
+
+		if numDown > '0' && numDown <= '9' {
+			snapFilename := snapshotPrefix+string(numDown)
+			if snapshotMode == 'm' {
+				snapshotMode = 'x'
+				snapshot := emu.MakeSnapshot()
+				if len(snapshot) > 0 {
+					ioutil.WriteFile(snapFilename, snapshot, os.FileMode(0644))
+				}
+			} else if snapshotMode == 'l' {
+				snapshotMode = 'x'
+				snapBytes, err := ioutil.ReadFile(snapFilename)
+				if err != nil {
+					fmt.Println("failed to load snapshot:", err)
+					continue
+				}
+				newEmu, err := emu.LoadSnapshot(snapBytes)
+				if err != nil {
+					fmt.Println("failed to load snapshot:", err)
+					continue
+				}
+				emu = newEmu
+			}
+		}
 
 		emu.UpdateInput(newInput)
 		emu.Step()

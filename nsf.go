@@ -25,6 +25,11 @@ type nsfPlayer struct {
 	DbgFlipRequested   bool
 }
 
+func (np *nsfPlayer) MakeSnapshot() []byte { return nil }
+func (np *nsfPlayer) LoadSnapshot(snapBytes []byte) (Emulator, error) {
+	return nil, fmt.Errorf("snapshots not implemented for NSFs")
+}
+
 type nsfHeader struct {
 	Magic          [5]byte
 	Version        byte
@@ -299,9 +304,9 @@ func NewNsfPlayer(nsf []byte) Emulator {
 	np := nsfPlayer{
 		cpuState: cpuState{
 			Mem: mem{
-				MMC:    mapper,
-				PrgROM: cart,
-				ChrROM: make([]byte, 8192),
+				mmc:    mapper,
+				prgROM: cart,
+				chrROM: make([]byte, 8192),
 				PrgRAM: make([]byte, 8192),
 			},
 		},

@@ -18,8 +18,9 @@ type cpuState struct {
 	IRQ, BRK, NMI, RESET bool
 	LastStepsP           byte
 
-	Steps  uint64
-	Cycles uint64
+	Steps    uint64
+	Cycles   uint64
+	CartInfo *CartInfo
 
 	CurrentJoypad1 Joypad
 	CurrentJoypad2 Joypad // empty for now
@@ -75,7 +76,7 @@ func (cs *cpuState) runCycles(cycles uint) {
 			cs.PPU.runCycle(cs) // ppu clock is 3x cpu
 		}
 		cs.APU.runCycle(cs)
-		cs.Mem.MMC.RunCycle(cs)
+		cs.Mem.mmc.RunCycle(cs)
 		cs.Cycles++
 	}
 }
@@ -200,15 +201,16 @@ func newState(romBytes []byte) *cpuState {
 	chrEnd := chrStart + cartInfo.GetROMSizeChr()
 	cs := cpuState{
 		Mem: mem{
-			MMC:    makeMMC(cartInfo),
-			PrgROM: romBytes[prgStart:prgEnd],
-			ChrROM: romBytes[chrStart:chrEnd],
+			mmc:    makeMMC(cartInfo),
+			prgROM: romBytes[prgStart:prgEnd],
+			chrROM: romBytes[chrStart:chrEnd],
 			PrgRAM: make([]byte, cartInfo.GetRAMSizePrg()),
 		},
-		RESET: true,
+		CartInfo: cartInfo,
+		RESET:    true,
 	}
 	if cartInfo.IsChrRAM() {
-		cs.Mem.ChrROM = make([]byte, cartInfo.GetRAMSizeChr())
+		cs.Mem.chrROM = make([]byte, cartInfo.GetRAMSizeChr())
 	}
 
 	cs.init()
@@ -217,7 +219,7 @@ func newState(romBytes []byte) *cpuState {
 }
 
 func (cs *cpuState) init() {
-	cs.Mem.MMC.Init(&cs.Mem)
+	cs.Mem.mmc.Init(&cs.Mem)
 	cs.APU.init()
 }
 

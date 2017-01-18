@@ -168,9 +168,9 @@ func (ppu *ppu) writeDataReg(mem *mem, val byte) {
 		ppu.PaletteRAM[addr] = val
 	} else if addr >= 0x2000 && addr < 0x3f00 {
 		addr = addr & 0x2fff
-		mem.MMC.WriteVRAM(mem, addr, val)
+		mem.mmc.WriteVRAM(mem, addr, val)
 	} else {
-		mem.MMC.WriteVRAM(mem, addr, val)
+		mem.mmc.WriteVRAM(mem, addr, val)
 	}
 	if ppu.IncrementStyleSelector == incrementBigStride {
 		ppu.AddrReg += 0x20
@@ -186,15 +186,15 @@ func (ppu *ppu) readDataReg(mem *mem) byte {
 	if addr >= 0x3f00 && addr < 0x4000 {
 		addr = getPaletteRAMAddr(addr)
 		// palette data is returned, but data buffer is updated to nametable values
-		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, addr&0x2fff)
+		ppu.DataReadBuffer = mem.mmc.ReadVRAM(mem, addr&0x2fff)
 		val = ppu.PaletteRAM[addr]
 	} else if addr >= 0x2000 && addr < 0x3f00 {
 		addr = addr & 0x2fff
 		val = ppu.DataReadBuffer
-		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, addr)
+		ppu.DataReadBuffer = mem.mmc.ReadVRAM(mem, addr)
 	} else {
 		val = ppu.DataReadBuffer
-		ppu.DataReadBuffer = mem.MMC.ReadVRAM(mem, addr)
+		ppu.DataReadBuffer = mem.mmc.ReadVRAM(mem, addr)
 	}
 	if ppu.IncrementStyleSelector == incrementBigStride {
 		ppu.AddrReg += 0x20
@@ -303,7 +303,7 @@ func (ppu *ppu) getPatternsForSpriteAtY(cs *cpuState, patternAddr uint16, y byte
 }
 
 func (ppu *ppu) read(cs *cpuState, addr uint16) byte {
-	return cs.Mem.MMC.ReadVRAM(&cs.Mem, addr)
+	return cs.Mem.mmc.ReadVRAM(&cs.Mem, addr)
 }
 
 var defaultPalette = ntscPaletteSat

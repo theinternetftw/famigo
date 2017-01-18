@@ -30,6 +30,15 @@ func (cs *cpuState) ReadSoundBuffer(toFill []byte) []byte {
 }
 
 func (cs *cpuState) UpdateInput(input Input) {
+
+	// prevent impossible inputs on original dpad
+	if input.Joypad.Up {
+		input.Joypad.Down = false
+	}
+	if input.Joypad.Left {
+		input.Joypad.Right = false
+	}
+
 	cs.CurrentJoypad1 = input.Joypad
 }
 

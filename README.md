@@ -1,4 +1,4 @@
-# famigo - a nes emulator in go
+# famigo - a nes emulator / nsf player in go
 
 After making [dmgo](https://github.com/theinternetftw/dmgo), I figured I'd make a NES emulator. So I did.
 I'm less emotionally attached to NES games, but I *am* very emotionally attached to their music and the

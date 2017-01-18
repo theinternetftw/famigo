@@ -52,13 +52,14 @@ type ppu struct {
 }
 
 type oamEntry struct {
-	X, Y      byte
-	TileField byte
-	FlipY     bool
-	FlipX     bool
-	BehindBG  bool
-	PaletteID byte
-	OAMIndex  byte
+	X, Y                byte
+	TileField           byte
+	FlipY               bool
+	FlipX               bool
+	BehindBG            bool
+	PaletteID           byte
+	OAMIndex            byte
+	PatternsForScanline [8]byte
 }
 
 func (ppu *ppu) xInRange(spriteX, testX byte) bool {
@@ -97,6 +98,36 @@ func (ppu *ppu) parseOAM() {
 				break
 			}
 		}
+	}
+}
+
+func (ppu *ppu) getPatternDataForParsedOAM(cs *cpuState, y byte) {
+	for i := range ppu.OAMBeingParsed {
+		entry := &ppu.OAMBeingParsed[i]
+		tileID := entry.TileField
+		var spriteY byte
+		height := byte(8)
+		if ppu.UseBigSprites {
+			height = 16
+		}
+		if entry.FlipY {
+			spriteY = (height - 1) - (y - entry.Y)
+		} else {
+			spriteY = y - entry.Y
+		}
+		patternTbl := uint16(0x0000)
+		if ppu.UseUpperSpritePatternTable || (ppu.UseBigSprites && (tileID&0x01 == 0x01)) {
+			patternTbl = 0x1000
+		}
+		if ppu.UseBigSprites {
+			if spriteY >= 8 {
+				tileID |= 0x01
+			} else {
+				tileID &^= 0x01
+			}
+		}
+		patternAddr := patternTbl | (uint16(tileID) << 4)
+		entry.PatternsForScanline = ppu.getPatternsForSpriteAtY(cs, patternAddr, spriteY)
 	}
 }
 
@@ -249,13 +280,26 @@ func (ppu *ppu) getBGPatternAddr(tileID byte) uint16 {
 	return addr
 }
 
-func (ppu *ppu) getPattern(cs *cpuState, patternAddr uint16, x, y byte) byte {
-	patternAddr += uint16(y & 0x07)
+func (ppu *ppu) getPatternBG(cs *cpuState, tileID byte, x, y byte) byte {
+	patternAddr := ppu.getBGPatternAddr(tileID) + uint16(y&0x07)
 	patternPlane0 := ppu.read(cs, patternAddr)
 	patternPlane1 := ppu.read(cs, patternAddr+8)
 	patternBit0 := (patternPlane0 >> (7 - (x & 0x07))) & 0x01
 	patternBit1 := (patternPlane1 >> (7 - (x & 0x07))) & 0x01
 	return byte((patternBit1 << 1) | patternBit0)
+}
+
+func (ppu *ppu) getPatternsForSpriteAtY(cs *cpuState, patternAddr uint16, y byte) [8]byte {
+	patternAddr += uint16(y & 0x07)
+	patternPlane0 := ppu.read(cs, patternAddr)
+	patternPlane1 := ppu.read(cs, patternAddr+8)
+	result := [8]byte{}
+	for x := byte(0); x < 8; x++ {
+		patternBit0 := (patternPlane0 >> (7 - (x & 0x07))) & 0x01
+		patternBit1 := (patternPlane1 >> (7 - (x & 0x07))) & 0x01
+		result[x] = byte((patternBit1 << 1) | patternBit0)
+	}
+	return result
 }
 
 func (ppu *ppu) read(cs *cpuState, addr uint16) byte {
@@ -382,7 +426,7 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 	}
 
 	if ppu.PPUCyclesSinceYInc >= 1 && ppu.PPUCyclesSinceYInc <= 256 {
-		if ppu.LineY >= 0 && ppu.LineY < 240 && ppu.PPUCyclesSinceYInc&0x07 == 0 {
+		if ppu.LineY >= -1 && ppu.LineY < 240 && ppu.PPUCyclesSinceYInc&0x07 == 0 {
 			for i := 0; i < 8; i++ {
 
 				color := ppu.getBackgroundColor() & 0x3f
@@ -390,8 +434,7 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 
 				if ppu.ShowBG && (ppu.LineX >= 8 || ppu.ShowBGInLeftBorder) {
 					tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
-					patternAddr := ppu.getBGPatternAddr(tileID)
-					bgPattern = ppu.getPattern(cs, patternAddr, byte(ppu.LineX)+fineScrollXCopy, ppu.getFineScrollY())
+					bgPattern = ppu.getPatternBG(cs, tileID, byte(ppu.LineX)+fineScrollXCopy, ppu.getFineScrollY())
 					if bgPattern != 0 {
 						attributeByte := ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
 						paletteID := ppu.getPaletteIDFromAttributeByte(attributeByte, ppu.getBGTileX(), ppu.getBGTileY())
@@ -401,39 +444,17 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 				}
 
 				if ppu.ShowSprites && (ppu.LineX >= 8 || ppu.ShowSpritesInLeftBorder) {
-					x, y := byte(ppu.LineX), byte(ppu.LineY)
+					x := byte(ppu.LineX)
 					for i := 0; i < len(ppu.OAMForScanline); i++ {
 						entry := ppu.OAMForScanline[i]
 						if ppu.xInRange(entry.X, x) {
-							tileID := entry.TileField
-							var spriteY, spriteX byte
-							height := byte(8)
-							if ppu.UseBigSprites {
-								height = 16
-							}
-							if entry.FlipY {
-								spriteY = (height - 1) - (y - entry.Y)
-							} else {
-								spriteY = y - entry.Y
-							}
+							var spriteX byte
 							if entry.FlipX {
 								spriteX = 7 - (x - entry.X)
 							} else {
 								spriteX = x - entry.X
 							}
-							patternTbl := uint16(0x0000)
-							if ppu.UseUpperSpritePatternTable || (ppu.UseBigSprites && (tileID&0x01 == 0x01)) {
-								patternTbl = 0x1000
-							}
-							if ppu.UseBigSprites {
-								if spriteY >= 8 {
-									tileID |= 0x01
-								} else {
-									tileID &^= 0x01
-								}
-							}
-							patternAddr := patternTbl | (uint16(tileID) << 4)
-							pattern := ppu.getPattern(cs, patternAddr, spriteX, spriteY)
+							pattern := entry.PatternsForScanline[spriteX&0x07]
 							if pattern != 0 {
 								if entry.OAMIndex == 0 {
 									if ppu.ShowBG && ppu.LineX != 255 {
@@ -452,19 +473,26 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 					}
 				}
 
-				r, g, b := ppu.getRGB(color)
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4] = r
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+1] = g
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+2] = b
-				ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+3] = 0xff
+				if ppu.LineY != -1 {
+					r, g, b := ppu.getRGB(color)
+					ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4] = r
+					ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+1] = g
+					ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+2] = b
+					ppu.FrameBuffer[ppu.LineY*256*4+ppu.LineX*4+3] = 0xff
 
-				ppu.LineX++
-				if (byte(ppu.LineX)+fineScrollXCopy)&0x07 == 0 {
-					if ppu.ShowBG || ppu.ShowSprites {
-						ppu.incrementHorizontalScrollBits()
+					ppu.LineX++
+					if (byte(ppu.LineX)+fineScrollXCopy)&0x07 == 0 {
+						if ppu.ShowBG || ppu.ShowSprites {
+							ppu.incrementHorizontalScrollBits()
+						}
 					}
 				}
 			}
+		}
+	}
+	if ppu.PPUCyclesSinceYInc == 257 {
+		if ppu.LineY >= -1 && ppu.LineY < 240 {
+			ppu.getPatternDataForParsedOAM(cs, byte(ppu.LineY+1))
 		}
 	}
 

@@ -19,6 +19,8 @@ func NewErrEmu(msg string) Emulator {
 	return &emu
 }
 
+func (e *errEmu) GetPrgRAM() []byte                    { return []byte{} }
+func (e *errEmu) SetPrgRAM([]byte) error               { return nil }
 func (e *errEmu) ReadSoundBuffer(toFill []byte) []byte { return nil }
 func (e *errEmu) UpdateInput(input Input)              {}
 func (e *errEmu) Step()                                {}

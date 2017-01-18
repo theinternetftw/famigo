@@ -1,8 +1,13 @@
 package famigo
 
+import "fmt"
+
 // Emulator exposes the public facing fns for an emulation session
 type Emulator interface {
 	Step()
+
+	SetPrgRAM([]byte) error
+	GetPrgRAM() []byte
 
 	Framebuffer() []byte
 	FlipRequested() bool
@@ -53,6 +58,19 @@ func (cs *cpuState) FlipRequested() bool {
 	result := cs.flipRequested
 	cs.flipRequested = false
 	return result
+}
+
+func (cs *cpuState) GetPrgRAM() []byte {
+	return cs.Mem.PrgRAM
+}
+
+func (cs *cpuState) SetPrgRAM(ram []byte) error {
+	if len(cs.Mem.PrgRAM) == len(ram) {
+		copy(cs.Mem.PrgRAM, ram)
+		return nil
+	}
+	// TODO: better checks if possible (e.g. checksums, etc)
+	return fmt.Errorf("ram size mismatch")
 }
 
 func (cs *cpuState) Step() {

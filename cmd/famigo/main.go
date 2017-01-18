@@ -35,6 +35,7 @@ func main() {
 		dieIf(err)
 
 		fmt.Println("PRG ROM SIZE:", cartInfo.GetROMSizePrg())
+		fmt.Println("PRG RAM SIZE:", cartInfo.GetRAMSizePrg())
 		fmt.Println("CHR ROM SIZE:", cartInfo.GetROMSizeChr())
 		fmt.Println("MAPPER NUM:", cartInfo.GetMapperNumber())
 
@@ -50,6 +51,16 @@ func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator
 
 	// FIXME: settings are for debug right now
 	lastVBlankTime := time.Now()
+	lastSaveTime := time.Now()
+
+	saveFilename := filename + ".sav"
+	if saveFile, err := ioutil.ReadFile(saveFilename); err == nil {
+		err = emu.SetPrgRAM(saveFile)
+		if err != nil {
+			fmt.Println("error loading savefile,", err)
+		}
+		fmt.Println("loaded save!")
+	}
 
 	audio, err := platform.OpenAudioBuffer(4, 4096, 44100, 16, 2)
 	workingAudioBuffer := make([]byte, audio.BufferSize())
@@ -89,6 +100,13 @@ func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator
 				<-time.NewTimer(toWait).C
 			}
 			lastVBlankTime = time.Now()
+		}
+		if time.Now().Sub(lastSaveTime) > 5*time.Second {
+			ram := emu.GetPrgRAM()
+			if len(ram) > 0 {
+				ioutil.WriteFile(saveFilename, ram, os.FileMode(0644))
+				lastSaveTime = time.Now()
+			}
 		}
 	}
 }

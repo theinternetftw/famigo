@@ -35,7 +35,7 @@ func main() {
 		dieIf(err)
 
 		fmt.Println("PRG ROM SIZE:", cartInfo.GetROMSizePrg())
-		fmt.Println("PRG RAM SIZE:", cartInfo.GetRAMSizePrg())
+		fmt.Println("PRG RAM SIZE:", cartInfo.GetRAMSizePrg(), "( Battery backed:", cartInfo.HasBatteryBackedRAM(), ")")
 		fmt.Println("CHR ROM SIZE:", cartInfo.GetROMSizeChr())
 		fmt.Println("MAPPER NUM:", cartInfo.GetMapperNumber())
 

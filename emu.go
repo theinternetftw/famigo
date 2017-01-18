@@ -72,7 +72,10 @@ func (cs *cpuState) FlipRequested() bool {
 }
 
 func (cs *cpuState) GetPrgRAM() []byte {
-	return cs.Mem.PrgRAM
+	if cs.CartInfo.HasBatteryBackedRAM() {
+		return cs.Mem.PrgRAM
+	}
+	return nil
 }
 
 func (cs *cpuState) SetPrgRAM(ram []byte) error {

@@ -556,15 +556,16 @@ func (m *mapper004) Init(mem *mem) {}
 
 func (m *mapper004) RunCycle(cs *cpuState) {
 	endOfScanline := 260
-	isRendering := (cs.PPU.ShowBG || cs.PPU.ShowSprites) && cs.PPU.LineY >= 0 && cs.PPU.LineY < 240
+	isRendering := cs.PPU.ShowBG && cs.PPU.LineY >= -1 && cs.PPU.LineY < 240
 	if isRendering && m.IRQLastPPUCycles < endOfScanline && cs.PPU.PPUCyclesSinceYInc >= endOfScanline {
+		if m.IRQCounterReloadRequested {
+			m.IRQCounterReloadRequested = false
+			m.IRQCounter = m.IRQCounterReloadValue
+		}
 		if m.IRQCounter == 0 {
 			if m.IRQEnabled {
 				cs.IRQ = true
 			}
-		}
-		if m.IRQCounter == 0 || m.IRQCounterReloadRequested {
-			m.IRQCounterReloadRequested = false
 			m.IRQCounter = m.IRQCounterReloadValue
 		} else {
 			m.IRQCounter--

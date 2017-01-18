@@ -25,6 +25,10 @@ type nsfPlayer struct {
 	DbgFlipRequested   bool
 }
 
+func (np *nsfPlayer) GetPrgRAM() []byte { return nil }
+func (np *nsfPlayer) SetPrgRAM(ram []byte) error {
+	return fmt.Errorf("saves not implemented for NSFs")
+}
 func (np *nsfPlayer) MakeSnapshot() []byte { return nil }
 func (np *nsfPlayer) LoadSnapshot(snapBytes []byte) (Emulator, error) {
 	return nil, fmt.Errorf("snapshots not implemented for NSFs")

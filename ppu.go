@@ -62,7 +62,7 @@ type oamEntry struct {
 }
 
 func (ppu *ppu) xInRange(spriteX, testX byte) bool {
-	return testX >= spriteX && testX < spriteX+8
+	return testX >= spriteX && int(testX) < int(spriteX)+8
 }
 
 func (ppu *ppu) yInRange(spriteY, testY byte) bool {
@@ -76,7 +76,7 @@ func (ppu *ppu) yInRange(spriteY, testY byte) bool {
 func (ppu *ppu) parseOAM() {
 	ppu.OAMBeingParsed = ppu.OAMBeingParsed[:0]
 	for i := 0; len(ppu.OAMBeingParsed) < 9 && i < 64; i++ {
-		spriteY := ppu.OAM[i*4]
+		spriteY := ppu.OAM[i*4] + 1
 		if ppu.yInRange(spriteY, byte(ppu.LineY+1)) {
 			if len(ppu.OAMBeingParsed) < 8 {
 				tileField := ppu.OAM[i*4+1]

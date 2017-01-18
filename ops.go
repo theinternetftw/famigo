@@ -323,7 +323,7 @@ func (cs *cpuState) stepOpcode() {
 		cs.branchOpRel(cs.P&flagOverflow == flagOverflow)
 	case 0x71: // ADC (indirect),y
 		addr, cycles := cs.getYPostIndexedAddr()
-		cs.opFn(4+cycles, 2, func() { cs.A = cs.adcAndSetFlags(cs.read(addr)) })
+		cs.opFn(5+cycles, 2, func() { cs.A = cs.adcAndSetFlags(cs.read(addr)) })
 	case 0x74: // 2-nop (UNDOCUMENTED)
 		cs.opFn(4, 2, cs.undocumentedOpcode)
 	case 0x75: // ADC zeropage,x
@@ -542,7 +542,7 @@ func (cs *cpuState) stepOpcode() {
 		cs.opFn(3, 2, func() { cs.A = cs.sbcAndSetFlags(cs.read(addr)) })
 	case 0xe4: // CPX zeropage
 		addr := cs.getZeroPageAddr()
-		cs.cmpOp(2, 2, cs.X, cs.read(addr))
+		cs.cmpOp(3, 2, cs.X, cs.read(addr))
 	case 0xe6: // INC zeropage
 		addr := cs.getZeroPageAddr()
 		cs.storeOp(5, 2, addr, cs.read(addr)+1, cs.setZeroNeg)
@@ -553,9 +553,12 @@ func (cs *cpuState) stepOpcode() {
 		cs.setRegOp(2, 1, &cs.X, cs.X+1, cs.setZeroNeg)
 	case 0xea: // NOP
 		cs.opFn(2, 1, func() {})
+	case 0xeb: // sbc-alt imm (UNDOCUMENTED)
+		val := cs.read(cs.PC + 1)
+		cs.opFn(2, 2, func() { cs.A = cs.sbcAndSetFlags(val) })
 	case 0xec: // CPX absolute
 		addr := cs.getAbsoluteAddr()
-		cs.cmpOp(2, 3, cs.X, cs.read(addr))
+		cs.cmpOp(4, 3, cs.X, cs.read(addr))
 	case 0xed: // SBC absolute
 		addr := cs.getAbsoluteAddr()
 		cs.opFn(4, 3, func() { cs.A = cs.sbcAndSetFlags(cs.read(addr)) })

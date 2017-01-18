@@ -1,9 +1,6 @@
 # famigo - a nes emulator / nsf player in go
 
-After making [dmgo](https://github.com/theinternetftw/dmgo), I figured I'd make a NES emulator. So I did.
-I'm less emotionally attached to NES games, but I *am* very emotionally attached to their music and the
-NES sound in general, so the fact that it's an NSF player more than makes up for it not being the very
-center of my childhood.
+After [dmgo](https://github.com/theinternetftw/dmgo), I figured I'd make a NES emulator. So I did.
 
 #### Features:
  * Audio (on windows)!
@@ -26,5 +23,6 @@ After that, `go build ./cmd/famigo` should be enough. The interested can also se
 #### Important Notes:
 
  * Keybindings are currently hardcoded to WSAD / JK / TY (arrowpad, ba, start/select)
+ * The NSF player uses the same keys for pause (start), and track skip (left/right)
  * Saved games use/expect a slightly different naming convention than usual: romfilename.nes.sav
  * Quicksave/Quickload is done by pressing m or l (make or load quicksave), followed by a number key

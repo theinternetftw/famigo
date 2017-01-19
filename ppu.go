@@ -66,8 +66,8 @@ func (ppu *ppu) xInRange(spriteX, testX byte) bool {
 	return testX >= spriteX && int(testX) < int(spriteX)+8
 }
 
-func (ppu *ppu) yInRange(spriteY, testY byte) bool {
-	height := byte(8)
+func (ppu *ppu) yInRange(spriteY, testY int) bool {
+	height := 8
 	if ppu.UseBigSprites {
 		height = 16
 	}
@@ -77,13 +77,13 @@ func (ppu *ppu) yInRange(spriteY, testY byte) bool {
 func (ppu *ppu) parseOAM() {
 	ppu.OAMBeingParsed = ppu.OAMBeingParsed[:0]
 	for i := 0; len(ppu.OAMBeingParsed) < 9 && i < 64; i++ {
-		spriteY := ppu.OAM[i*4] + 1
-		if ppu.yInRange(spriteY, byte(ppu.LineY+1)) {
+		spriteY := ppu.OAM[i*4]
+		if ppu.yInRange(int(spriteY)+1, ppu.LineY+1) {
 			if len(ppu.OAMBeingParsed) < 8 {
 				tileField := ppu.OAM[i*4+1]
 				attrByte := ppu.OAM[i*4+2]
 				ppu.OAMBeingParsed = append(ppu.OAMBeingParsed, oamEntry{
-					Y:         spriteY,
+					Y:         spriteY + 1,
 					TileField: tileField,
 					FlipY:     attrByte&0x80 == 0x80,
 					FlipX:     attrByte&0x40 == 0x40,

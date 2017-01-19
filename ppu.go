@@ -31,6 +31,11 @@ type ppu struct {
 	LineY              int
 	LineX              int
 
+	CurrentNametableByte byte
+	CurrentAttributeByte byte
+	CurrentTileLowByte   byte
+	CurrentTileHighByte  byte
+
 	EmphasizeBlue           bool
 	EmphasizeGreen          bool
 	EmphasizeRed            bool
@@ -266,12 +271,20 @@ const (
 func (ppu *ppu) getCurrentNametableTileAddr() uint16 {
 	return 0x2000 | ppu.AddrReg&0x0fff // 0x2000 | nametableSel | coarseY | coarseX
 }
+func (ppu *ppu) getCurrentNametableByte(cs *cpuState) byte {
+	return ppu.read(cs, ppu.getCurrentNametableTileAddr())
+}
+
 func (ppu *ppu) getCurrentNametableAttributeAddr() uint16 {
 	addr := 0x23c0 | (ppu.AddrReg & 0x0c00)
 	addr |= ((ppu.AddrReg >> 5 >> 2) & 0x07) << 3 // high 3 bits of coarse y
 	addr |= (ppu.AddrReg >> 2) & 0x07             // high 3 bits of coarse x
 	return addr
 }
+func (ppu *ppu) getCurrentAttributeByte(cs *cpuState) byte {
+	return ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
+}
+
 func (ppu *ppu) getBGPatternAddr(tileID byte) uint16 {
 	addr := uint16(tileID) << 4
 	if ppu.UseUpperBGPatternTable {
@@ -279,13 +292,16 @@ func (ppu *ppu) getBGPatternAddr(tileID byte) uint16 {
 	}
 	return addr
 }
-
-func (ppu *ppu) getPatternBG(cs *cpuState, tileID byte, x, y byte) byte {
-	patternAddr := ppu.getBGPatternAddr(tileID) + uint16(y&0x07)
+func (ppu *ppu) getCurrentTileBytes(cs *cpuState, tileID byte) (byte, byte) {
+	patternAddr := ppu.getBGPatternAddr(tileID) + uint16(ppu.getFineScrollY()&0x07)
 	patternPlane0 := ppu.read(cs, patternAddr)
 	patternPlane1 := ppu.read(cs, patternAddr+8)
-	patternBit0 := (patternPlane0 >> (7 - (x & 0x07))) & 0x01
-	patternBit1 := (patternPlane1 >> (7 - (x & 0x07))) & 0x01
+	return patternPlane0, patternPlane1
+}
+
+func (ppu *ppu) getPatternBG(x byte) byte {
+	patternBit0 := (ppu.CurrentTileLowByte >> (7 - (x & 0x07))) & 0x01
+	patternBit1 := (ppu.CurrentTileHighByte >> (7 - (x & 0x07))) & 0x01
 	return byte((patternBit1 << 1) | patternBit0)
 }
 
@@ -407,7 +423,8 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 		}
 	}
 
-	if ppu.PPUCyclesSinceYInc == 1 {
+	switch ppu.PPUCyclesSinceYInc {
+	case 1:
 		if ppu.LineY == 241 {
 			ppu.FrameCounter++
 			ppu.VBlankAlert = true
@@ -423,20 +440,48 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 			ppu.OAMForScanline = append(ppu.OAMForScanline, ppu.OAMBeingParsed...)
 			ppu.parseOAM()
 		}
+	case 257:
+		if ppu.LineY >= -1 && ppu.LineY < 240 {
+			ppu.getPatternDataForParsedOAM(cs, byte(ppu.LineY+1))
+			if ppu.ShowBG || ppu.ShowSprites {
+				ppu.copyHorizontalScrollBits()
+				fineScrollXCopy = ppu.FineScrollX
+			}
+		}
+	case 304:
+		if ppu.LineY == -1 {
+			// NOTE: technically, happens over and over from cycles 280-304
+			if ppu.ShowBG || ppu.ShowSprites {
+				ppu.copyVerticalScrollBits()
+				ppu.copyHorizontalScrollBits()
+				fineScrollXCopy = ppu.FineScrollX
+			}
+		}
+	case 341:
+		ppu.PPUCyclesSinceYInc = 0
+		ppu.LineX = 0
+		ppu.LineY++
+		if ppu.LineY == 261 {
+			ppu.LineY = -1
+		}
 	}
 
 	if ppu.PPUCyclesSinceYInc >= 1 && ppu.PPUCyclesSinceYInc <= 256 {
 		if ppu.LineY >= -1 && ppu.LineY < 240 && ppu.PPUCyclesSinceYInc&0x07 == 0 {
+
+			ppu.CurrentNametableByte = ppu.getCurrentNametableByte(cs)
+			ppu.CurrentAttributeByte = ppu.getCurrentAttributeByte(cs)
+			ppu.CurrentTileLowByte, ppu.CurrentTileHighByte = ppu.getCurrentTileBytes(cs, ppu.CurrentNametableByte)
+
 			for i := 0; i < 8; i++ {
 
 				color := ppu.getBackgroundColor() & 0x3f
 				bgPattern := byte(0)
 
 				if ppu.ShowBG && (ppu.LineX >= 8 || ppu.ShowBGInLeftBorder) {
-					tileID := ppu.read(cs, ppu.getCurrentNametableTileAddr())
-					bgPattern = ppu.getPatternBG(cs, tileID, byte(ppu.LineX)+fineScrollXCopy, ppu.getFineScrollY())
+					bgPattern = ppu.getPatternBG(byte(ppu.LineX) + fineScrollXCopy)
 					if bgPattern != 0 {
-						attributeByte := ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
+						attributeByte := ppu.CurrentAttributeByte
 						paletteID := ppu.getPaletteIDFromAttributeByte(attributeByte, ppu.getBGTileX(), ppu.getBGTileY())
 						colorAddr := (paletteID << 2) | bgPattern
 						color = ppu.PaletteRAM[colorAddr] & 0x3f
@@ -484,51 +529,25 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 					if (byte(ppu.LineX)+fineScrollXCopy)&0x07 == 0 {
 						if ppu.ShowBG || ppu.ShowSprites {
 							ppu.incrementHorizontalScrollBits()
+
+							ppu.CurrentNametableByte = ppu.getCurrentNametableByte(cs)
+							ppu.CurrentAttributeByte = ppu.getCurrentAttributeByte(cs)
+							ppu.CurrentTileLowByte, ppu.CurrentTileHighByte = ppu.getCurrentTileBytes(cs, ppu.CurrentNametableByte)
 						}
 					}
 				}
 			}
-		}
-	}
-	if ppu.PPUCyclesSinceYInc == 257 {
-		if ppu.LineY >= -1 && ppu.LineY < 240 {
-			ppu.getPatternDataForParsedOAM(cs, byte(ppu.LineY+1))
-		}
-	}
-
-	if ppu.LineY >= 0 && ppu.LineY < 240 {
-		if ppu.ShowBG || ppu.ShowSprites {
 			if ppu.PPUCyclesSinceYInc == 256 {
-				ppu.incrementVerticalScrollBits()
+				if ppu.ShowBG || ppu.ShowSprites {
+					if ppu.PPUCyclesSinceYInc == 256 {
+						ppu.incrementVerticalScrollBits()
+					}
+					// NOTE: seems and acts wrong, but is perscribed in nesdev wiki
+					// if ppu.PPUCyclesSinceYInc == 328 || ppu.PPUCyclesSinceYInc == 336 {
+					// 	ppu.incrementHorizontalScrollBits()
+					// }
+				}
 			}
-			if ppu.PPUCyclesSinceYInc == 257 {
-				ppu.copyHorizontalScrollBits()
-				fineScrollXCopy = ppu.FineScrollX
-			}
-			// NOTE: seems and acts wrong, but is perscribed in nesdev wiki
-			// if ppu.PPUCyclesSinceYInc == 328 || ppu.PPUCyclesSinceYInc == 336 {
-			// 	ppu.incrementHorizontalScrollBits()
-			// }
-		}
-	}
-
-	if ppu.PPUCyclesSinceYInc == 304 {
-		if ppu.LineY == -1 {
-			// NOTE: technically, happens over and over from cycles 280-304
-			if ppu.ShowBG || ppu.ShowSprites {
-				ppu.copyVerticalScrollBits()
-				ppu.copyHorizontalScrollBits()
-				fineScrollXCopy = ppu.FineScrollX
-			}
-		}
-	}
-
-	if ppu.PPUCyclesSinceYInc == 341 {
-		ppu.PPUCyclesSinceYInc = 0
-		ppu.LineX = 0
-		ppu.LineY++
-		if ppu.LineY == 261 {
-			ppu.LineY = -1
 		}
 	}
 

@@ -82,6 +82,7 @@ func (ppu *ppu) yInRange(spriteY, testY int) bool {
 }
 
 func (ppu *ppu) parseOAM() {
+	ppu.SpriteOverflow = false
 	ppu.OAMBeingParsed = ppu.OAMBeingParsed[:0]
 	for i := 0; len(ppu.OAMBeingParsed) < 9 && i < 64; i++ {
 		spriteY := ppu.OAM[i*4]

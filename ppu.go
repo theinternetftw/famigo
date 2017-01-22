@@ -21,12 +21,14 @@ type ppu struct {
 	AddrRegSelector byte
 	DataReadBuffer  byte
 
-	VBlankAlert    bool
-	SpriteZeroHit  bool
-	SpriteOverflow bool // misnomer: complicated role, due to hw bugs
+	VBlankAlert     bool
+	LastVBlankReset uint64
+	SpriteZeroHit   bool
+	SpriteOverflow  bool // misnomer: complicated role, due to hw bugs
 
 	SharedReg byte
 
+	PPUCycles          uint64
 	PPUCyclesSinceYInc int
 	LineY              int
 	LineX              int
@@ -427,11 +429,13 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 	case 1:
 		if ppu.LineY == 241 {
 			ppu.FrameCounter++
-			ppu.VBlankAlert = true
-			cs.flipRequested = true
-			if ppu.GenerateVBlankNMIs {
-				cs.NMI = true
+			if ppu.LastVBlankReset != ppu.PPUCycles {
+				ppu.VBlankAlert = true
+				if ppu.GenerateVBlankNMIs {
+					cs.NMI = true
+				}
 			}
+			cs.flipRequested = true
 		} else if ppu.LineY == -1 {
 			ppu.VBlankAlert = false
 			ppu.SpriteZeroHit = false
@@ -551,6 +555,7 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 		}
 	}
 
+	ppu.PPUCycles++
 	ppu.PPUCyclesSinceYInc++
 }
 
@@ -589,6 +594,7 @@ func (ppu *ppu) readStatusReg() byte {
 		false, false, false, false, false,
 	)
 	ppu.VBlankAlert = false
+	ppu.LastVBlankReset = ppu.PPUCycles
 	ppu.AddrRegSelector = 0
 	return result | (ppu.SharedReg & 0x1f)
 }

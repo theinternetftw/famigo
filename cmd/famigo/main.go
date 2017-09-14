@@ -56,12 +56,15 @@ func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator
 	snapshotPrefix := filename + ".snapshot"
 
 	saveFilename := filename + ".sav"
-	if saveFile, err := ioutil.ReadFile(saveFilename); err == nil {
+	saveFile, err := ioutil.ReadFile(saveFilename)
+	if err == nil {
 		err = emu.SetPrgRAM(saveFile)
-		if err != nil {
-			fmt.Println("error loading savefile,", err)
-		}
+	}
+
+	if err == nil {
 		fmt.Println("loaded save!")
+	} else {
+		fmt.Println("error loading savefile,", err)
 	}
 
 	audio, err := platform.OpenAudioBuffer(4, 4096, 44100, 16, 2)

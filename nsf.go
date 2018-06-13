@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"time"
+
+	"github.com/theinternetftw/cpugo/virt6502"
 )
 
 type nsfPlayer struct {
@@ -319,6 +321,14 @@ func NewNsfPlayer(nsf []byte) Emulator {
 		HdrExtended:      nsfe,
 		TvStdBit:         tvBit,
 	}
+	np.CPU = virt6502.Virt6502{
+		RESET:             true,
+		IgnoreDecimalMode: true,
+		RunCycles:         np.emuState.runCycles,
+		Write:             np.emuState.write,
+		Read:              np.emuState.read,
+		Err:               func(e error) { emuErr(e) },
+	}
 	np.DbgTerminal = dbgTerminal{w: 256, h: 240, screen: np.DbgScreen[:]}
 
 	np.init()
@@ -350,15 +360,15 @@ func (np *nsfPlayer) initTune(songNum byte) {
 		}
 	}
 
-	np.A = songNum
-	np.X = np.TvStdBit // should usually be 0 for ntsc
+	np.CPU.A = songNum
+	np.CPU.X = np.TvStdBit // should usually be 0 for ntsc
 
 	// force a RESET-y call to INIT
-	np.S = 0xfd
-	np.push16(0x0000)
-	np.P |= flagIrqDisabled
-	np.PC = np.Hdr.InitAddr
-	for np.PC != 0x0001 {
+	np.CPU.S = 0xfd
+	np.CPU.Push16(0x0000)
+	np.CPU.P |= virt6502.FlagIrqDisabled
+	np.CPU.PC = np.Hdr.InitAddr
+	for np.CPU.PC != 0x0001 {
 		np.step()
 	}
 
@@ -482,13 +492,13 @@ func (np *nsfPlayer) Step() {
 			}
 		}
 
-		if np.PC == 0x0001 {
+		if np.CPU.PC == 0x0001 {
 			timeLeft := np.PlayCallInterval - now.Sub(np.LastPlayCall).Seconds()
 			if timeLeft <= 0 {
 				np.LastPlayCall = now
-				np.S = 0xfd
-				np.push16(0x0000)
-				np.PC = np.Hdr.PlayAddr
+				np.CPU.S = 0xfd
+				np.CPU.Push16(0x0000)
+				np.CPU.PC = np.Hdr.PlayAddr
 			} else {
 				toWait := time.Duration(timeLeft / 2 * 1000 * float64(time.Millisecond))
 				if toWait > time.Millisecond {
@@ -497,7 +507,7 @@ func (np *nsfPlayer) Step() {
 			}
 		}
 
-		if np.PC != 0x0001 {
+		if np.CPU.PC != 0x0001 {
 			np.step()
 		} else {
 			np.runCycles(2)

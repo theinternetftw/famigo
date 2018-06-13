@@ -9,7 +9,7 @@ import (
 	"io/ioutil"
 )
 
-const currentSnapshotVersion = 1
+const currentSnapshotVersion = 2
 
 const infoString = "famigo snapshot"
 
@@ -44,64 +44,87 @@ func (emu *emuState) loadSnapshot(snapBytes []byte) (*emuState, error) {
 }
 
 func (emu *emuState) convertLatestSnapshot(snap *snapshot) (*emuState, error) {
+
 	var err error
 	var newState emuState
+
 	if err = json.Unmarshal(snap.State, &newState); err != nil {
 		return nil, err
-	} else if newState.Mem.mmc, err = unmarshalMMC(snap.MMC); err != nil {
+	}
+
+	if newState.Mem.mmc, err = unmarshalMMC(snap.MMC); err != nil {
 		return nil, err
 	}
+
 	newState.Mem.prgROM = emu.Mem.prgROM
 	if emu.CartInfo.IsChrRAM() {
 		newState.Mem.chrROM = snap.ChrRAM
 	} else {
 		newState.Mem.chrROM = emu.Mem.chrROM
 	}
+
+	newState.CPU.Write = newState.write
+	newState.CPU.Read = newState.read
+	newState.CPU.RunCycles = newState.runCycles
+	newState.CPU.Err = func(e error) { emuErr(e) }
+
 	return &newState, nil
 }
 
-var snapshotConverters = map[int]func([]byte) []byte{
-// If new field can be zero, no need for converter.
-// Converters should look like this (including comment):
-// added 2017-XX-XX
-// 1: func(stateBytes []byte) []byte {
-// 	stateBytes = stateBytes[:len(stateBytes)-1]
-// 	return append(stateBytes, []byte(",\"ExampleNewField\":0}")...)
-// },
+var snapshotConverters = map[int]func(map[string]interface{}) error{
+
+	// If new field can be zero, no need for converter.
+
+	// added 2018-06-13
+	1: convertSnap1To2,
+}
+
+// added 2018-06-13
+func convertSnap1To2(state map[string]interface{}) error {
+	newCPU := map[string]interface{}{
+		"IgnoreDecimalMode": true,
+	}
+	keys := []string{
+		"PC",
+		"P", "A", "X", "Y", "S",
+		"IRQ", "BRK", "NMI", "RESET",
+		"LastStepsP",
+		"Steps",
+	}
+	for _, key := range keys {
+		val, ok := state[key]
+		if !ok {
+			return fmt.Errorf("missing key %v", key)
+		}
+		newCPU[key] = val
+		delete(state, key)
+	}
+	state["CPU"] = newCPU
+
+	return nil
 }
 
 func (emu *emuState) convertOldSnapshot(snap *snapshot) (*emuState, error) {
 
-	var err error
-	var newState emuState
-
-	// unfortunately, can't use json, as go is crazy enough to make it so
-	// converting something in and out of json as a map[string]interface{}
-	// will kill the ability to import it back in as a struct. so we have
-	// to change it by hand to keep the go conventions that go will break
-	// otherwise :/
-	stateBytes := []byte(snap.State)
+	var state map[string]interface{}
+	if err := json.Unmarshal(snap.State, &state); err != nil {
+		return nil, fmt.Errorf("json unpack err: %v", err)
+	}
 
 	for i := snap.Version; i < currentSnapshotVersion; i++ {
-		converterFn, ok := snapshotConverters[snap.Version]
-		if !ok {
+		if converterFn, ok := snapshotConverters[snap.Version]; !ok {
 			return nil, fmt.Errorf("unknown snapshot version: %v", snap.Version)
+		} else if err := converterFn(state); err != nil {
+			return nil, fmt.Errorf("error converting snapshot version %v: %v", i, err)
 		}
-		stateBytes = converterFn(stateBytes)
 	}
 
-	if err = json.Unmarshal(stateBytes, &newState); err != nil {
-		return nil, fmt.Errorf("post-convert unpack err: %v", err)
-	} else if newState.Mem.mmc, err = unmarshalMMC(snap.MMC); err != nil {
-		return nil, fmt.Errorf("unpack mmc err: %v", err)
+	var err error
+	if snap.State, err = json.Marshal(state); err != nil {
+		return nil, fmt.Errorf("json pack err: %v", err)
 	}
-	newState.Mem.prgROM = emu.Mem.prgROM
-	if emu.CartInfo.IsChrRAM() {
-		newState.Mem.chrROM = snap.ChrRAM
-	} else {
-		newState.Mem.chrROM = emu.Mem.chrROM
-	}
-	return &newState, nil
+
+	return emu.convertLatestSnapshot(snap)
 }
 
 func (emu *emuState) makeSnapshot() []byte {

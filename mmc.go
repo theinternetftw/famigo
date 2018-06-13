@@ -616,7 +616,7 @@ func (m *mapper004) RunCycle(emu *emuState) {
 		}
 		if m.IRQCounter == 0 {
 			if m.IRQEnabled {
-				emu.IRQ = true
+				emu.CPU.IRQ = true
 			}
 			m.IRQCounter = m.IRQCounterReloadValue
 		} else {

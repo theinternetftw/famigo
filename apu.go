@@ -171,7 +171,7 @@ func (apu *apu) runCycle(emu *emuState) {
 
 	apu.runFrameCounterCycle()
 	if apu.FrameCounterInterruptRequested {
-		emu.IRQ = true
+		emu.CPU.IRQ = true
 	}
 
 	if !apu.buffer.full() {
@@ -206,7 +206,7 @@ func (apu *apu) runCycle(emu *emuState) {
 	}
 
 	if apu.DMC.DMCInterruptRequested {
-		emu.IRQ = true
+		emu.CPU.IRQ = true
 	}
 }
 

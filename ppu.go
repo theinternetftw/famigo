@@ -411,12 +411,12 @@ func (ppu *ppu) runCycle(emu *emuState) {
 	if ppu.ManuallyGenerateNMI {
 		ppu.ManuallyGenerateNMI = false
 		ppu.ManuallyGenerateNMIWaitingForStep = true
-		ppu.ManuallyGenerateNMIStepRequested = emu.Steps
+		ppu.ManuallyGenerateNMIStepRequested = emu.CPU.Steps
 	}
 	if ppu.ManuallyGenerateNMIWaitingForStep {
-		if emu.Steps > ppu.ManuallyGenerateNMIStepRequested {
+		if emu.CPU.Steps > ppu.ManuallyGenerateNMIStepRequested {
 			ppu.ManuallyGenerateNMIWaitingForStep = false
-			emu.NMI = true
+			emu.CPU.NMI = true
 		}
 	}
 
@@ -433,7 +433,7 @@ func (ppu *ppu) runCycle(emu *emuState) {
 			if ppu.LastVBlankReset != ppu.PPUCycles {
 				ppu.VBlankAlert = true
 				if ppu.GenerateVBlankNMIs {
-					emu.NMI = true
+					emu.CPU.NMI = true
 				}
 			}
 			emu.flipRequested = true

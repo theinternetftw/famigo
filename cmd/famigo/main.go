@@ -42,7 +42,7 @@ func main() {
 		emu = famigo.NewEmulator(romBytes)
 	}
 
-	platform.InitDisplayLoop(256*2+40, 240*2+40, 256, 240, func(sharedState *platform.WindowState) {
+	platform.InitDisplayLoop("famigo", 256*2+40, 240*2+40, 256, 240, func(sharedState *platform.WindowState) {
 		startEmu(cartFilename, sharedState, emu)
 	})
 }

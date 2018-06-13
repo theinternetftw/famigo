@@ -21,7 +21,7 @@ type snapshot struct {
 	ChrRAM  []byte
 }
 
-func (cs *cpuState) loadSnapshot(snapBytes []byte) (*cpuState, error) {
+func (emu *emuState) loadSnapshot(snapBytes []byte) (*emuState, error) {
 	var err error
 	var reader io.Reader
 	var unpackedBytes []byte
@@ -33,29 +33,29 @@ func (cs *cpuState) loadSnapshot(snapBytes []byte) (*cpuState, error) {
 	} else if err = json.Unmarshal(unpackedBytes, &snap); err != nil {
 		return nil, err
 	} else if snap.Version < currentSnapshotVersion {
-		return cs.convertOldSnapshot(&snap)
+		return emu.convertOldSnapshot(&snap)
 	} else if snap.Version > currentSnapshotVersion {
 		return nil, fmt.Errorf("this version of famigo is too old to open this snapshot")
 	}
 
 	// NOTE: what about external RAM? Doesn't this overwrite .sav files with whatever's in the snapshot?
 
-	return cs.convertLatestSnapshot(&snap)
+	return emu.convertLatestSnapshot(&snap)
 }
 
-func (cs *cpuState) convertLatestSnapshot(snap *snapshot) (*cpuState, error) {
+func (emu *emuState) convertLatestSnapshot(snap *snapshot) (*emuState, error) {
 	var err error
-	var newState cpuState
+	var newState emuState
 	if err = json.Unmarshal(snap.State, &newState); err != nil {
 		return nil, err
 	} else if newState.Mem.mmc, err = unmarshalMMC(snap.MMC); err != nil {
 		return nil, err
 	}
-	newState.Mem.prgROM = cs.Mem.prgROM
-	if cs.CartInfo.IsChrRAM() {
+	newState.Mem.prgROM = emu.Mem.prgROM
+	if emu.CartInfo.IsChrRAM() {
 		newState.Mem.chrROM = snap.ChrRAM
 	} else {
-		newState.Mem.chrROM = cs.Mem.chrROM
+		newState.Mem.chrROM = emu.Mem.chrROM
 	}
 	return &newState, nil
 }
@@ -70,10 +70,10 @@ var snapshotConverters = map[int]func([]byte) []byte{
 // },
 }
 
-func (cs *cpuState) convertOldSnapshot(snap *snapshot) (*cpuState, error) {
+func (emu *emuState) convertOldSnapshot(snap *snapshot) (*emuState, error) {
 
 	var err error
-	var newState cpuState
+	var newState emuState
 
 	// unfortunately, can't use json, as go is crazy enough to make it so
 	// converting something in and out of json as a map[string]interface{}
@@ -95,30 +95,30 @@ func (cs *cpuState) convertOldSnapshot(snap *snapshot) (*cpuState, error) {
 	} else if newState.Mem.mmc, err = unmarshalMMC(snap.MMC); err != nil {
 		return nil, fmt.Errorf("unpack mmc err: %v", err)
 	}
-	newState.Mem.prgROM = cs.Mem.prgROM
-	if cs.CartInfo.IsChrRAM() {
+	newState.Mem.prgROM = emu.Mem.prgROM
+	if emu.CartInfo.IsChrRAM() {
 		newState.Mem.chrROM = snap.ChrRAM
 	} else {
-		newState.Mem.chrROM = cs.Mem.chrROM
+		newState.Mem.chrROM = emu.Mem.chrROM
 	}
 	return &newState, nil
 }
 
-func (cs *cpuState) makeSnapshot() []byte {
+func (emu *emuState) makeSnapshot() []byte {
 	var err error
-	var csJSON []byte
+	var emuJSON []byte
 	var snapJSON []byte
-	if csJSON, err = json.Marshal(cs); err != nil {
+	if emuJSON, err = json.Marshal(emu); err != nil {
 		panic(err)
 	}
 	snap := snapshot{
 		Version: currentSnapshotVersion,
 		Info:    infoString,
-		State:   json.RawMessage(csJSON),
-		MMC:     cs.Mem.mmc.Marshal(),
+		State:   json.RawMessage(emuJSON),
+		MMC:     emu.Mem.mmc.Marshal(),
 	}
-	if cs.CartInfo.IsChrRAM() {
-		snap.ChrRAM = cs.Mem.chrROM
+	if emu.CartInfo.IsChrRAM() {
+		snap.ChrRAM = emu.Mem.chrROM
 	}
 	if snapJSON, err = json.Marshal(&snap); err != nil {
 		panic(err)

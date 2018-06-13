@@ -125,7 +125,7 @@ func (apu *apu) runFrameCounterCycle() {
 	apu.FrameCounter++
 }
 
-func (sound *sound) updateDMCOutput(cs *cpuState) {
+func (sound *sound) updateDMCOutput(emu *emuState) {
 	if sound.DMCRestartFlag {
 		sound.DMCRestartFlag = false
 		sound.DMCCurrentSampleAddr = sound.DMCInitialSampleAddr
@@ -150,7 +150,7 @@ func (sound *sound) updateDMCOutput(cs *cpuState) {
 		sound.DMCSampleBitsRemaining = 8
 		if sound.DMCSampleBytesRemaining > 0 {
 			sound.DMCSilenceFlag = false
-			sound.DMCCurrentSampleByte = cs.read(sound.DMCCurrentSampleAddr)
+			sound.DMCCurrentSampleByte = emu.read(sound.DMCCurrentSampleAddr)
 			sound.DMCCurrentSampleAddr = (sound.DMCCurrentSampleAddr + 1) | 0x8000
 			sound.DMCSampleBytesRemaining--
 			if sound.DMCSampleBytesRemaining == 0 {
@@ -167,22 +167,22 @@ func (sound *sound) updateDMCOutput(cs *cpuState) {
 	}
 }
 
-func (apu *apu) runCycle(cs *cpuState) {
+func (apu *apu) runCycle(emu *emuState) {
 
 	apu.runFrameCounterCycle()
 	if apu.FrameCounterInterruptRequested {
-		cs.IRQ = true
+		emu.IRQ = true
 	}
 
 	if !apu.buffer.full() {
 
 		left, right := 0.0, 0.0
 
-		p1 := apu.Pulse1.getSample(cs)
-		p2 := apu.Pulse2.getSample(cs)
-		tri := apu.Triangle.getSample(cs)
-		dmc := apu.DMC.getSample(cs)
-		noise := apu.Noise.getSample(cs)
+		p1 := apu.Pulse1.getSample(emu)
+		p2 := apu.Pulse2.getSample(emu)
+		tri := apu.Triangle.getSample(emu)
+		dmc := apu.DMC.getSample(emu)
+		noise := apu.Noise.getSample(emu)
 
 		pSamples := 95.88 / (8128/(float64(p1)+float64(p2)) + 100)
 		tdnSamples := 159.79 / (1/(float64(tri)/8227+float64(noise)/12241+float64(dmc)/22638) + 100)
@@ -206,16 +206,16 @@ func (apu *apu) runCycle(cs *cpuState) {
 	}
 
 	if apu.DMC.DMCInterruptRequested {
-		cs.IRQ = true
+		emu.IRQ = true
 	}
 }
 
-func (apu *apu) runFreqCycle(cs *cpuState) {
-	apu.Pulse1.runFreqCycle(cs)
-	apu.Pulse2.runFreqCycle(cs)
-	apu.Triangle.runFreqCycle(cs)
-	apu.DMC.runFreqCycle(cs)
-	apu.Noise.runFreqCycle(cs)
+func (apu *apu) runFreqCycle(emu *emuState) {
+	apu.Pulse1.runFreqCycle(emu)
+	apu.Pulse2.runFreqCycle(emu)
+	apu.Triangle.runFreqCycle(emu)
+	apu.DMC.runFreqCycle(emu)
+	apu.Noise.runFreqCycle(emu)
 }
 
 func (apu *apu) runEnvCycle() {
@@ -236,7 +236,7 @@ func (apu *apu) runLengthCycle() {
 	apu.Noise.runLengthCycle()
 }
 
-func (sound *sound) runFreqCycle(cs *cpuState) {
+func (sound *sound) runFreqCycle(emu *emuState) {
 
 	sound.T += sound.Freq * timePerSample
 
@@ -245,7 +245,7 @@ func (sound *sound) runFreqCycle(cs *cpuState) {
 		if sound.SoundType == noiseSoundType {
 			sound.updateNoiseShiftRegister()
 		} else if sound.SoundType == dmcSoundType {
-			sound.updateDMCOutput(cs)
+			sound.updateDMCOutput(emu)
 		}
 	}
 }
@@ -304,11 +304,11 @@ func (sound *sound) getTriangleSample() byte {
 	return val
 }
 
-func (sound *sound) getSample(cs *cpuState) byte {
+func (sound *sound) getSample(emu *emuState) byte {
 	sample := byte(0)
 	switch sound.SoundType {
 	case squareSoundType:
-		sound.runFreqCycle(cs)
+		sound.runFreqCycle(emu)
 		vol := sound.getCurrentVolume()
 		if sound.On && vol > 0 {
 			if sound.LengthCounter > 0 {
@@ -322,11 +322,11 @@ func (sound *sound) getSample(cs *cpuState) byte {
 	case triangleSoundType:
 		audible := sound.PeriodTimer >= 2 // not accurate, but eliminates annoying clicks
 		if sound.On && audible && sound.LengthCounter > 0 && sound.TriangleLinearCounter > 0 {
-			sound.runFreqCycle(cs)
+			sound.runFreqCycle(emu)
 		}
 		sample = sound.getTriangleSample()
 	case noiseSoundType:
-		sound.runFreqCycle(cs)
+		sound.runFreqCycle(emu)
 		vol := sound.getCurrentVolume()
 		if sound.On && vol > 0 {
 			if sound.LengthCounter > 0 {
@@ -336,7 +336,7 @@ func (sound *sound) getSample(cs *cpuState) byte {
 			}
 		}
 	case dmcSoundType:
-		sound.runFreqCycle(cs)
+		sound.runFreqCycle(emu)
 		sample = sound.DMCCurrentValue
 	}
 	return sample

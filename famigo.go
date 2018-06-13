@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-type cpuState struct {
+type emuState struct {
 	Mem mem
 
 	flipRequested bool
@@ -32,82 +32,82 @@ type cpuState struct {
 	JoypadReg2ReadCount byte
 }
 
-func (cs *cpuState) writeJoypadReg1(val byte) {
+func (emu *emuState) writeJoypadReg1(val byte) {
 	if val&0x01 != 0 {
-		cs.ReloadingJoypads = true
-		cs.JoypadReg1ReadCount = 0
-		cs.JoypadReg2ReadCount = 0
-	} else if cs.ReloadingJoypads {
-		cs.ReloadingJoypads = false
+		emu.ReloadingJoypads = true
+		emu.JoypadReg1ReadCount = 0
+		emu.JoypadReg2ReadCount = 0
+	} else if emu.ReloadingJoypads {
+		emu.ReloadingJoypads = false
 	}
 }
-func (cs *cpuState) getCurrentButtonState(jp *Joypad, readCount byte) bool {
+func (emu *emuState) getCurrentButtonState(jp *Joypad, readCount byte) bool {
 	tbl := []bool{jp.A, jp.B, jp.Sel, jp.Start, jp.Up, jp.Down, jp.Left, jp.Right}
 	return tbl[readCount]
 }
-func (cs *cpuState) readJoypadReg1() byte {
-	jp := &cs.CurrentJoypad1
-	if cs.ReloadingJoypads {
+func (emu *emuState) readJoypadReg1() byte {
+	jp := &emu.CurrentJoypad1
+	if emu.ReloadingJoypads {
 		return 0x40 | boolBit(jp.A, 0)
-	} else if cs.JoypadReg1ReadCount > 7 {
+	} else if emu.JoypadReg1ReadCount > 7 {
 		return 0x41
 	}
-	state := cs.getCurrentButtonState(jp, cs.JoypadReg1ReadCount)
-	cs.JoypadReg1ReadCount++
+	state := emu.getCurrentButtonState(jp, emu.JoypadReg1ReadCount)
+	emu.JoypadReg1ReadCount++
 	return 0x40 | boolBit(state, 0)
 }
 
 // writes for this reg handled by apu.writeFrameCounterReg
-func (cs *cpuState) readJoypadReg2() byte {
-	jp := &cs.CurrentJoypad2
-	if cs.ReloadingJoypads {
+func (emu *emuState) readJoypadReg2() byte {
+	jp := &emu.CurrentJoypad2
+	if emu.ReloadingJoypads {
 		return 0x40 | boolBit(jp.A, 0)
-	} else if cs.JoypadReg2ReadCount > 7 {
+	} else if emu.JoypadReg2ReadCount > 7 {
 		return 0x41
 	}
-	state := cs.getCurrentButtonState(jp, cs.JoypadReg2ReadCount)
-	cs.JoypadReg2ReadCount++
+	state := emu.getCurrentButtonState(jp, emu.JoypadReg2ReadCount)
+	emu.JoypadReg2ReadCount++
 	return 0x40 | boolBit(state, 0)
 }
 
-func (cs *cpuState) runCycles(cycles uint) {
+func (emu *emuState) runCycles(cycles uint) {
 	for i := uint(0); i < cycles; i++ {
 		for j := 0; j < 3; j++ {
-			cs.PPU.runCycle(cs) // ppu clock is 3x cpu
+			emu.PPU.runCycle(emu) // ppu clock is 3x cpu
 		}
-		cs.APU.runCycle(cs)
-		cs.Mem.mmc.RunCycle(cs)
-		cs.Cycles++
+		emu.APU.runCycle(emu)
+		emu.Mem.mmc.RunCycle(emu)
+		emu.Cycles++
 	}
 }
 
-func (cs *cpuState) debugStatusLine() string {
+func (emu *emuState) debugStatusLine() string {
 	if showMemReads {
 		fmt.Println()
 	}
-	opcode := cs.read(cs.PC)
-	b2, b3 := cs.read(cs.PC+1), cs.read(cs.PC+2)
-	sp := 0x100 + uint16(cs.S)
-	s1, s2, s3 := cs.read(sp), cs.read(sp+1), cs.read(sp+2)
-	return fmt.Sprintf("Steps: %09d ", cs.Steps) +
-		fmt.Sprintf("PC:%04x ", cs.PC) +
+	opcode := emu.read(emu.PC)
+	b2, b3 := emu.read(emu.PC+1), emu.read(emu.PC+2)
+	sp := 0x100 + uint16(emu.S)
+	s1, s2, s3 := emu.read(sp), emu.read(sp+1), emu.read(sp+2)
+	return fmt.Sprintf("Steps: %09d ", emu.Steps) +
+		fmt.Sprintf("PC:%04x ", emu.PC) +
 		fmt.Sprintf("*PC[:3]:%02x%02x%02x ", opcode, b2, b3) +
 		fmt.Sprintf("*S[:3]:%02x%02x%02x ", s1, s2, s3) +
 		fmt.Sprintf("opcode:%v ", opcodeNames[opcode]) +
-		fmt.Sprintf("A:%02x ", cs.A) +
-		fmt.Sprintf("X:%02x ", cs.X) +
-		fmt.Sprintf("Y:%02x ", cs.Y) +
-		fmt.Sprintf("P:%02x ", cs.P) +
-		fmt.Sprintf("S:%02x ", cs.S)
+		fmt.Sprintf("A:%02x ", emu.A) +
+		fmt.Sprintf("X:%02x ", emu.X) +
+		fmt.Sprintf("Y:%02x ", emu.Y) +
+		fmt.Sprintf("P:%02x ", emu.P) +
+		fmt.Sprintf("S:%02x ", emu.S)
 	/*
-		return fmt.Sprintf("%04X  ", cs.PC) +
+		return fmt.Sprintf("%04X  ", emu.PC) +
 			fmt.Sprintf("%02X %02X %02X  ", opcode, b2, b3) +
 			fmt.Sprintf("%v                             ", opcodeNames[opcode]) +
-			fmt.Sprintf("A:%02X ", cs.A) +
-			fmt.Sprintf("X:%02X ", cs.X) +
-			fmt.Sprintf("Y:%02X ", cs.Y) +
-			fmt.Sprintf("P:%02X ", cs.P) +
-			fmt.Sprintf("SP:%02X", cs.S)
+			fmt.Sprintf("A:%02X ", emu.A) +
+			fmt.Sprintf("X:%02X ", emu.X) +
+			fmt.Sprintf("Y:%02X ", emu.Y) +
+			fmt.Sprintf("P:%02X ", emu.P) +
+			fmt.Sprintf("SP:%02X", emu.S)
 	*/
 }
 
@@ -122,59 +122,59 @@ const (
 	flagCarry       = 0x01
 )
 
-func (cs *cpuState) handleInterrupts() {
-	if cs.RESET {
-		cs.RESET = false
-		cs.PC = cs.read16(0xfffc)
-		cs.S -= 3
-		cs.P |= flagIrqDisabled
-		cs.write(0x4015, 0x00) // all channels off
-	} else if cs.BRK {
-		cs.BRK = false
-		cs.push16(cs.PC + 1)
-		cs.push(cs.P | flagBrk | flagOnStack)
-		cs.P |= flagIrqDisabled
-		cs.PC = cs.read16(0xfffe)
-	} else if cs.NMI {
-		cs.NMI = false
-		cs.push16(cs.PC)
-		cs.push(cs.P | flagOnStack)
-		cs.P |= flagIrqDisabled
-		cs.PC = cs.read16(0xfffa)
-	} else if cs.IRQ {
-		cs.IRQ = false
-		if cs.interruptsEnabled() {
-			cs.push16(cs.PC)
-			cs.push(cs.P | flagOnStack)
-			cs.P |= flagIrqDisabled
-			cs.PC = cs.read16(0xfffe)
+func (emu *emuState) handleInterrupts() {
+	if emu.RESET {
+		emu.RESET = false
+		emu.PC = emu.read16(0xfffc)
+		emu.S -= 3
+		emu.P |= flagIrqDisabled
+		emu.write(0x4015, 0x00) // all channels off
+	} else if emu.BRK {
+		emu.BRK = false
+		emu.push16(emu.PC + 1)
+		emu.push(emu.P | flagBrk | flagOnStack)
+		emu.P |= flagIrqDisabled
+		emu.PC = emu.read16(0xfffe)
+	} else if emu.NMI {
+		emu.NMI = false
+		emu.push16(emu.PC)
+		emu.push(emu.P | flagOnStack)
+		emu.P |= flagIrqDisabled
+		emu.PC = emu.read16(0xfffa)
+	} else if emu.IRQ {
+		emu.IRQ = false
+		if emu.interruptsEnabled() {
+			emu.push16(emu.PC)
+			emu.push(emu.P | flagOnStack)
+			emu.P |= flagIrqDisabled
+			emu.PC = emu.read16(0xfffe)
 		}
 	}
-	cs.LastStepsP = cs.P
+	emu.LastStepsP = emu.P
 }
 
-func (cs *cpuState) push16(val uint16) {
-	cs.push(byte(val >> 8))
-	cs.push(byte(val))
+func (emu *emuState) push16(val uint16) {
+	emu.push(byte(val >> 8))
+	emu.push(byte(val))
 }
-func (cs *cpuState) push(val byte) {
-	cs.write(0x100+uint16(cs.S), val)
-	cs.S--
+func (emu *emuState) push(val byte) {
+	emu.write(0x100+uint16(emu.S), val)
+	emu.S--
 }
 
-func (cs *cpuState) pop16() uint16 {
-	val := uint16(cs.pop())
-	val |= uint16(cs.pop()) << 8
+func (emu *emuState) pop16() uint16 {
+	val := uint16(emu.pop())
+	val |= uint16(emu.pop()) << 8
 	return val
 }
-func (cs *cpuState) pop() byte {
-	cs.S++
-	result := cs.read(0x100 + uint16(cs.S))
+func (emu *emuState) pop() byte {
+	emu.S++
+	result := emu.read(0x100 + uint16(emu.S))
 	return result
 }
 
-func (cs *cpuState) interruptsEnabled() bool {
-	return cs.LastStepsP&flagIrqDisabled == 0
+func (emu *emuState) interruptsEnabled() bool {
+	return emu.LastStepsP&flagIrqDisabled == 0
 }
 
 const (
@@ -182,24 +182,24 @@ const (
 	showMemWrites = false
 )
 
-func (cs *cpuState) step() {
+func (emu *emuState) step() {
 
-	cs.handleInterrupts()
+	emu.handleInterrupts()
 
-	cs.Steps++
+	emu.Steps++
 
-	// fmt.Println(cs.debugStatusLine())
+	// fmt.Println(emu.debugStatusLine())
 
-	cs.stepOpcode()
+	emu.stepOpcode()
 }
 
-func newState(romBytes []byte) *cpuState {
+func newState(romBytes []byte) *emuState {
 	cartInfo, _ := ParseCartInfo(romBytes)
 	prgStart := cartInfo.GetROMOffsetPrg()
 	prgEnd := prgStart + cartInfo.GetROMSizePrg()
 	chrStart := cartInfo.GetROMOffsetChr()
 	chrEnd := chrStart + cartInfo.GetROMSizeChr()
-	cs := cpuState{
+	emu := emuState{
 		Mem: mem{
 			mmc:    makeMMC(cartInfo),
 			prgROM: romBytes[prgStart:prgEnd],
@@ -210,17 +210,17 @@ func newState(romBytes []byte) *cpuState {
 		RESET:    true,
 	}
 	if cartInfo.IsChrRAM() {
-		cs.Mem.chrROM = make([]byte, cartInfo.GetRAMSizeChr())
+		emu.Mem.chrROM = make([]byte, cartInfo.GetRAMSizeChr())
 	}
 
-	cs.init()
+	emu.init()
 
-	return &cs
+	return &emu
 }
 
-func (cs *cpuState) init() {
-	cs.Mem.mmc.Init(&cs.Mem)
-	cs.APU.init()
+func (emu *emuState) init() {
+	emu.Mem.mmc.Init(&emu.Mem)
+	emu.APU.init()
 }
 
 // Joypad represents the buttons on a gamepad

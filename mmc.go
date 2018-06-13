@@ -49,7 +49,7 @@ type mmc interface {
 	Write(mem *mem, addr uint16, val byte)
 	ReadVRAM(mem *mem, addr uint16) byte
 	WriteVRAM(mem *mem, addr uint16, val byte)
-	RunCycle(cpu *cpuState)
+	RunCycle(emu *emuState)
 
 	Marshal() marshalledMMC
 }
@@ -119,7 +119,7 @@ type mapper000 struct {
 }
 
 func (m *mapper000) Init(mem *mem)          {}
-func (m *mapper000) RunCycle(cs *cpuState)  {}
+func (m *mapper000) RunCycle(emu *emuState) {}
 func (m *mapper000) Marshal() marshalledMMC { return marshalMMC(0, m) }
 
 func (m *mapper000) Read(mem *mem, addr uint16) byte {
@@ -220,7 +220,7 @@ const (
 func (m *mapper001) Init(mem *mem) {
 	m.PrgBankMode = lastBankFixed
 }
-func (m *mapper001) RunCycle(cs *cpuState)  {}
+func (m *mapper001) RunCycle(emu *emuState) {}
 func (m *mapper001) Marshal() marshalledMMC { return marshalMMC(1, m) }
 
 func (m *mapper001) Read(mem *mem, addr uint16) byte {
@@ -428,7 +428,7 @@ type mapper002 struct {
 }
 
 func (m *mapper002) Init(mem *mem)          {}
-func (m *mapper002) RunCycle(cs *cpuState)  {}
+func (m *mapper002) RunCycle(emu *emuState) {}
 func (m *mapper002) Marshal() marshalledMMC { return marshalMMC(2, m) }
 
 func (m *mapper002) Read(mem *mem, addr uint16) byte {
@@ -505,7 +505,7 @@ type mapper003 struct {
 
 func (m *mapper003) Init(mem *mem) {}
 
-func (m *mapper003) RunCycle(cs *cpuState)  {}
+func (m *mapper003) RunCycle(emu *emuState) {}
 func (m *mapper003) Marshal() marshalledMMC { return marshalMMC(3, m) }
 
 func (m *mapper003) Read(mem *mem, addr uint16) byte {
@@ -606,24 +606,24 @@ type mapper004 struct {
 func (m *mapper004) Init(mem *mem)          {}
 func (m *mapper004) Marshal() marshalledMMC { return marshalMMC(4, m) }
 
-func (m *mapper004) RunCycle(cs *cpuState) {
+func (m *mapper004) RunCycle(emu *emuState) {
 	endOfScanline := 260
-	isRendering := cs.PPU.ShowBG && cs.PPU.LineY >= -1 && cs.PPU.LineY < 240
-	if isRendering && m.IRQLastPPUCycles < endOfScanline && cs.PPU.PPUCyclesSinceYInc >= endOfScanline {
+	isRendering := emu.PPU.ShowBG && emu.PPU.LineY >= -1 && emu.PPU.LineY < 240
+	if isRendering && m.IRQLastPPUCycles < endOfScanline && emu.PPU.PPUCyclesSinceYInc >= endOfScanline {
 		if m.IRQCounterReloadRequested {
 			m.IRQCounterReloadRequested = false
 			m.IRQCounter = m.IRQCounterReloadValue
 		}
 		if m.IRQCounter == 0 {
 			if m.IRQEnabled {
-				cs.IRQ = true
+				emu.IRQ = true
 			}
 			m.IRQCounter = m.IRQCounterReloadValue
 		} else {
 			m.IRQCounter--
 		}
 	}
-	m.IRQLastPPUCycles = cs.PPU.PPUCyclesSinceYInc
+	m.IRQLastPPUCycles = emu.PPU.PPUCyclesSinceYInc
 }
 
 func (m *mapper004) Read(mem *mem, addr uint16) byte {
@@ -885,7 +885,7 @@ func (m *mapper007) Init(mem *mem) {
 	m.VramMirroring = OneScreenLowerMirroring
 }
 
-func (m *mapper007) RunCycle(cs *cpuState)  {}
+func (m *mapper007) RunCycle(emu *emuState) {}
 func (m *mapper007) Marshal() marshalledMMC { return marshalMMC(7, m) }
 
 func (m *mapper007) Read(mem *mem, addr uint16) byte {
@@ -964,7 +964,7 @@ func (m *mapper031) Init(mem *mem) {
 	m.bankNumSlots[7] = len(mem.prgROM)/(4*1024) - 1
 }
 
-func (m *mapper031) RunCycle(cs *cpuState)  {}
+func (m *mapper031) RunCycle(emu *emuState) {}
 func (m *mapper031) Marshal() marshalledMMC { return marshalMMC(31, m) }
 
 func (m *mapper031) Read(mem *mem, addr uint16) byte {

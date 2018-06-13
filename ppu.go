@@ -109,7 +109,7 @@ func (ppu *ppu) parseOAM() {
 	}
 }
 
-func (ppu *ppu) getPatternDataForParsedOAM(cs *cpuState, y byte) {
+func (ppu *ppu) getPatternDataForParsedOAM(emu *emuState, y byte) {
 	for i := range ppu.OAMBeingParsed {
 		entry := &ppu.OAMBeingParsed[i]
 		tileID := entry.TileField
@@ -135,7 +135,7 @@ func (ppu *ppu) getPatternDataForParsedOAM(cs *cpuState, y byte) {
 			}
 		}
 		patternAddr := patternTbl | (uint16(tileID) << 4)
-		entry.PatternsForScanline = ppu.getPatternsForSpriteAtY(cs, patternAddr, spriteY)
+		entry.PatternsForScanline = ppu.getPatternsForSpriteAtY(emu, patternAddr, spriteY)
 	}
 }
 
@@ -274,8 +274,8 @@ const (
 func (ppu *ppu) getCurrentNametableTileAddr() uint16 {
 	return 0x2000 | ppu.AddrReg&0x0fff // 0x2000 | nametableSel | coarseY | coarseX
 }
-func (ppu *ppu) getCurrentNametableByte(cs *cpuState) byte {
-	return ppu.read(cs, ppu.getCurrentNametableTileAddr())
+func (ppu *ppu) getCurrentNametableByte(emu *emuState) byte {
+	return ppu.read(emu, ppu.getCurrentNametableTileAddr())
 }
 
 func (ppu *ppu) getCurrentNametableAttributeAddr() uint16 {
@@ -284,8 +284,8 @@ func (ppu *ppu) getCurrentNametableAttributeAddr() uint16 {
 	addr |= (ppu.AddrReg >> 2) & 0x07             // high 3 bits of coarse x
 	return addr
 }
-func (ppu *ppu) getCurrentAttributeByte(cs *cpuState) byte {
-	return ppu.read(cs, ppu.getCurrentNametableAttributeAddr())
+func (ppu *ppu) getCurrentAttributeByte(emu *emuState) byte {
+	return ppu.read(emu, ppu.getCurrentNametableAttributeAddr())
 }
 
 func (ppu *ppu) getBGPatternAddr(tileID byte) uint16 {
@@ -295,10 +295,10 @@ func (ppu *ppu) getBGPatternAddr(tileID byte) uint16 {
 	}
 	return addr
 }
-func (ppu *ppu) getCurrentTileBytes(cs *cpuState, tileID byte) (byte, byte) {
+func (ppu *ppu) getCurrentTileBytes(emu *emuState, tileID byte) (byte, byte) {
 	patternAddr := ppu.getBGPatternAddr(tileID) + uint16(ppu.getFineScrollY()&0x07)
-	patternPlane0 := ppu.read(cs, patternAddr)
-	patternPlane1 := ppu.read(cs, patternAddr+8)
+	patternPlane0 := ppu.read(emu, patternAddr)
+	patternPlane1 := ppu.read(emu, patternAddr+8)
 	return patternPlane0, patternPlane1
 }
 
@@ -308,10 +308,10 @@ func (ppu *ppu) getPatternBG(x byte) byte {
 	return byte((patternBit1 << 1) | patternBit0)
 }
 
-func (ppu *ppu) getPatternsForSpriteAtY(cs *cpuState, patternAddr uint16, y byte) [8]byte {
+func (ppu *ppu) getPatternsForSpriteAtY(emu *emuState, patternAddr uint16, y byte) [8]byte {
 	patternAddr += uint16(y & 0x07)
-	patternPlane0 := ppu.read(cs, patternAddr)
-	patternPlane1 := ppu.read(cs, patternAddr+8)
+	patternPlane0 := ppu.read(emu, patternAddr)
+	patternPlane1 := ppu.read(emu, patternAddr+8)
 	result := [8]byte{}
 	for x := byte(0); x < 8; x++ {
 		patternBit0 := (patternPlane0 >> (7 - (x & 0x07))) & 0x01
@@ -321,8 +321,8 @@ func (ppu *ppu) getPatternsForSpriteAtY(cs *cpuState, patternAddr uint16, y byte
 	return result
 }
 
-func (ppu *ppu) read(cs *cpuState, addr uint16) byte {
-	return cs.Mem.mmc.ReadVRAM(&cs.Mem, addr)
+func (ppu *ppu) read(emu *emuState, addr uint16) byte {
+	return emu.Mem.mmc.ReadVRAM(&emu.Mem, addr)
 }
 
 var defaultPalette = ntscPaletteSat
@@ -406,17 +406,17 @@ func (ppu *ppu) getFineScrollY() byte { return byte(ppu.AddrReg>>12) & 0x07 }
 // FIXME: (hopefully) temp hack due to timing issues (games setting fineX before we're ready)
 var fineScrollXCopy byte
 
-func (ppu *ppu) runCycle(cs *cpuState) {
+func (ppu *ppu) runCycle(emu *emuState) {
 
 	if ppu.ManuallyGenerateNMI {
 		ppu.ManuallyGenerateNMI = false
 		ppu.ManuallyGenerateNMIWaitingForStep = true
-		ppu.ManuallyGenerateNMIStepRequested = cs.Steps
+		ppu.ManuallyGenerateNMIStepRequested = emu.Steps
 	}
 	if ppu.ManuallyGenerateNMIWaitingForStep {
-		if cs.Steps > ppu.ManuallyGenerateNMIStepRequested {
+		if emu.Steps > ppu.ManuallyGenerateNMIStepRequested {
 			ppu.ManuallyGenerateNMIWaitingForStep = false
-			cs.NMI = true
+			emu.NMI = true
 		}
 	}
 
@@ -433,10 +433,10 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 			if ppu.LastVBlankReset != ppu.PPUCycles {
 				ppu.VBlankAlert = true
 				if ppu.GenerateVBlankNMIs {
-					cs.NMI = true
+					emu.NMI = true
 				}
 			}
-			cs.flipRequested = true
+			emu.flipRequested = true
 		} else if ppu.LineY == -1 {
 			ppu.VBlankAlert = false
 			ppu.SpriteZeroHit = false
@@ -447,7 +447,7 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 		}
 	case 257:
 		if ppu.LineY >= -1 && ppu.LineY < 240 {
-			ppu.getPatternDataForParsedOAM(cs, byte(ppu.LineY+1))
+			ppu.getPatternDataForParsedOAM(emu, byte(ppu.LineY+1))
 			if ppu.ShowBG || ppu.ShowSprites {
 				ppu.copyHorizontalScrollBits()
 				fineScrollXCopy = ppu.FineScrollX
@@ -474,9 +474,9 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 	if ppu.PPUCyclesSinceYInc >= 1 && ppu.PPUCyclesSinceYInc <= 256 {
 		if ppu.LineY >= -1 && ppu.LineY < 240 && ppu.PPUCyclesSinceYInc&0x07 == 0 {
 
-			ppu.CurrentNametableByte = ppu.getCurrentNametableByte(cs)
-			ppu.CurrentAttributeByte = ppu.getCurrentAttributeByte(cs)
-			ppu.CurrentTileLowByte, ppu.CurrentTileHighByte = ppu.getCurrentTileBytes(cs, ppu.CurrentNametableByte)
+			ppu.CurrentNametableByte = ppu.getCurrentNametableByte(emu)
+			ppu.CurrentAttributeByte = ppu.getCurrentAttributeByte(emu)
+			ppu.CurrentTileLowByte, ppu.CurrentTileHighByte = ppu.getCurrentTileBytes(emu, ppu.CurrentNametableByte)
 
 			for i := 0; i < 8; i++ {
 
@@ -535,9 +535,9 @@ func (ppu *ppu) runCycle(cs *cpuState) {
 						if ppu.ShowBG || ppu.ShowSprites {
 							ppu.incrementHorizontalScrollBits()
 
-							ppu.CurrentNametableByte = ppu.getCurrentNametableByte(cs)
-							ppu.CurrentAttributeByte = ppu.getCurrentAttributeByte(cs)
-							ppu.CurrentTileLowByte, ppu.CurrentTileHighByte = ppu.getCurrentTileBytes(cs, ppu.CurrentNametableByte)
+							ppu.CurrentNametableByte = ppu.getCurrentNametableByte(emu)
+							ppu.CurrentAttributeByte = ppu.getCurrentAttributeByte(emu)
+							ppu.CurrentTileLowByte, ppu.CurrentTileHighByte = ppu.getCurrentTileBytes(emu, ppu.CurrentNametableByte)
 						}
 					}
 				}

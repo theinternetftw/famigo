@@ -8,7 +8,7 @@ import (
 )
 
 type nsfPlayer struct {
-	cpuState
+	emuState
 	Hdr                nsfHeader
 	HdrExtended        *parsedNsfe
 	PlayCallInterval   float64
@@ -306,7 +306,7 @@ func NewNsfPlayer(nsf []byte) Emulator {
 	}
 
 	np := nsfPlayer{
-		cpuState: cpuState{
+		emuState: emuState{
 			Mem: mem{
 				mmc:    mapper,
 				prgROM: cart,

@@ -30,22 +30,22 @@ func NewEmulator(cart []byte) Emulator {
 	return newState(cart)
 }
 
-func (cs *cpuState) MakeSnapshot() []byte {
-	return cs.makeSnapshot()
+func (emu *emuState) MakeSnapshot() []byte {
+	return emu.makeSnapshot()
 }
 
-func (cs *cpuState) LoadSnapshot(snapBytes []byte) (Emulator, error) {
-	return cs.loadSnapshot(snapBytes)
+func (emu *emuState) LoadSnapshot(snapBytes []byte) (Emulator, error) {
+	return emu.loadSnapshot(snapBytes)
 }
 
 // GetSoundBuffer returns a 44100hz * 16bit * 2ch sound buffer.
 // A pre-sized buffer must be provided, which is returned resized
 // if the buffer was less full than the length requested.
-func (cs *cpuState) ReadSoundBuffer(toFill []byte) []byte {
-	return cs.APU.buffer.read(toFill)
+func (emu *emuState) ReadSoundBuffer(toFill []byte) []byte {
+	return emu.APU.buffer.read(toFill)
 }
 
-func (cs *cpuState) UpdateInput(input Input) {
+func (emu *emuState) UpdateInput(input Input) {
 
 	// prevent impossible inputs on original dpad
 	if input.Joypad.Up {
@@ -55,38 +55,38 @@ func (cs *cpuState) UpdateInput(input Input) {
 		input.Joypad.Right = false
 	}
 
-	cs.CurrentJoypad1 = input.Joypad
+	emu.CurrentJoypad1 = input.Joypad
 }
 
 // Framebuffer returns the current state of the screen
-func (cs *cpuState) Framebuffer() []byte {
-	return cs.PPU.FrameBuffer[:]
+func (emu *emuState) Framebuffer() []byte {
+	return emu.PPU.FrameBuffer[:]
 }
 
 // FlipRequested indicates if a draw request is pending
 // and clears it before returning
-func (cs *cpuState) FlipRequested() bool {
-	result := cs.flipRequested
-	cs.flipRequested = false
+func (emu *emuState) FlipRequested() bool {
+	result := emu.flipRequested
+	emu.flipRequested = false
 	return result
 }
 
-func (cs *cpuState) GetPrgRAM() []byte {
-	if cs.CartInfo.HasBatteryBackedRAM() {
-		return cs.Mem.PrgRAM
+func (emu *emuState) GetPrgRAM() []byte {
+	if emu.CartInfo.HasBatteryBackedRAM() {
+		return emu.Mem.PrgRAM
 	}
 	return nil
 }
 
-func (cs *cpuState) SetPrgRAM(ram []byte) error {
-	if len(cs.Mem.PrgRAM) == len(ram) {
-		copy(cs.Mem.PrgRAM, ram)
+func (emu *emuState) SetPrgRAM(ram []byte) error {
+	if len(emu.Mem.PrgRAM) == len(ram) {
+		copy(emu.Mem.PrgRAM, ram)
 		return nil
 	}
 	// TODO: better checks if possible (e.g. checksums, etc)
 	return fmt.Errorf("ram size mismatch")
 }
 
-func (cs *cpuState) Step() {
-	cs.step()
+func (emu *emuState) Step() {
+	emu.step()
 }

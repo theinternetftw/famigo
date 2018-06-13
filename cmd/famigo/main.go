@@ -63,7 +63,7 @@ func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator
 
 	if err == nil {
 		fmt.Println("loaded save!")
-	} else {
+	} else if !os.IsNotExist(err) {
 		fmt.Println("error loading savefile,", err)
 	}
 

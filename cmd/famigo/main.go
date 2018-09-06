@@ -5,18 +5,27 @@ import (
 	"github.com/theinternetftw/famigo/profiling"
 	"github.com/theinternetftw/famigo/platform"
 
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"time"
 )
 
+type options struct {
+	fastMode bool
+}
+
 func main() {
 
 	defer profiling.Start().Stop()
 
-	assert(len(os.Args) == 2, "usage: ./famigo ROM_FILENAME")
-	cartFilename := os.Args[1]
+	fastMode := flag.Bool("fast", false, "starts in fast mode (no frame wait)")
+	flag.Parse()
+
+	args := flag.Args()
+	assert(len(args) == 1, "usage: ./famigo ROM_FILENAME")
+	cartFilename := args[0]
 
 	romBytes, err := ioutil.ReadFile(cartFilename)
 	dieIf(err)
@@ -43,14 +52,17 @@ func main() {
 	}
 
 	platform.InitDisplayLoop("famigo", 256*2+40, 240*2+40, 256, 240, func(sharedState *platform.WindowState) {
-		startEmu(cartFilename, sharedState, emu)
+		startEmu(cartFilename, sharedState, emu, options{
+			fastMode: *fastMode,
+		})
 	})
 }
 
-func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator) {
+func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator, options options) {
 
 	// FIXME: settings are for debug right now
-	lastVBlankTime := time.Now()
+	lastFlipTime := time.Now()
+	lastDrawTime := time.Now()
 	lastSaveTime := time.Now()
 
 	snapshotPrefix := filename + ".snapshot"
@@ -132,17 +144,24 @@ func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator
 		audio.Write(emu.ReadSoundBuffer(workingAudioBuffer))
 
 		if emu.FlipRequested() {
-			window.Mutex.Lock()
-			copy(window.Pix, emu.Framebuffer())
-			window.RequestDraw()
-			window.Mutex.Unlock()
+			if !options.fastMode || time.Now().Sub(lastDrawTime) > 17*time.Millisecond {
 
-			spent := time.Now().Sub(lastVBlankTime)
-			toWait := 17*time.Millisecond - spent
-			if toWait > time.Duration(0) {
-				<-time.NewTimer(toWait).C
+				window.Mutex.Lock()
+				copy(window.Pix, emu.Framebuffer())
+				window.RequestDraw()
+				window.Mutex.Unlock()
+
+				lastDrawTime = time.Now()
 			}
-			lastVBlankTime = time.Now()
+
+			spent := time.Now().Sub(lastFlipTime)
+			if !options.fastMode {
+				toWait := 17*time.Millisecond - spent
+				if toWait > time.Duration(0) {
+					<-time.NewTimer(toWait).C
+				}
+			}
+			lastFlipTime = time.Now()
 		}
 		if time.Now().Sub(lastSaveTime) > 5*time.Second {
 			ram := emu.GetPrgRAM()

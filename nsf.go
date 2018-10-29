@@ -322,7 +322,6 @@ func NewNsfPlayer(nsf []byte) Emulator {
 		TvStdBit:         tvBit,
 	}
 	np.CPU = virt6502.Virt6502{
-		RESET:             true,
 		IgnoreDecimalMode: true,
 		RunCycles:         np.emuState.runCycles,
 		Write:             np.emuState.write,

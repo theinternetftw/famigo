@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/theinternetftw/famigo"
 	"github.com/theinternetftw/famigo/profiling"
-	"github.com/theinternetftw/famigo/platform"
+	"github.com/theinternetftw/glimmer"
 
 	"flag"
 	"fmt"
@@ -51,14 +51,14 @@ func main() {
 		emu = famigo.NewEmulator(romBytes)
 	}
 
-	platform.InitDisplayLoop("famigo", 256*2+40, 240*2+40, 256, 240, func(sharedState *platform.WindowState) {
+	glimmer.InitDisplayLoop("famigo", 256*2+40, 240*2+40, 256, 240, func(sharedState *glimmer.WindowState) {
 		startEmu(cartFilename, sharedState, emu, options{
 			fastMode: *fastMode,
 		})
 	})
 }
 
-func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator, options options) {
+func startEmu(filename string, window *glimmer.WindowState, emu famigo.Emulator, options options) {
 
 	// FIXME: settings are for debug right now
 	lastFlipTime := time.Now()
@@ -79,7 +79,7 @@ func startEmu(filename string, window *platform.WindowState, emu famigo.Emulator
 		fmt.Println("error loading savefile,", err)
 	}
 
-	audio, err := platform.OpenAudioBuffer(4, 4096, 44100, 16, 2)
+	audio, err := glimmer.OpenAudioBuffer(4, 4096, 44100, 16, 2)
 	workingAudioBuffer := make([]byte, audio.BufferSize())
 	dieIf(err)
 

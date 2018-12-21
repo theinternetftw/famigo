@@ -1,7 +1,5 @@
 package famigo
 
-import "fmt"
-
 type apu struct {
 	FrameCounterInterruptInhibit   bool
 	FrameCounterSequencerMode      byte
@@ -49,15 +47,12 @@ func (apu *apu) init() {
 }
 
 const (
-	amountToStore    = 16 * 512 * 4 // must be power of 2
+	apuCircleBufSize = 16 * 512 * 4 // must be power of 2
 	samplesPerSecond = 44100
-	timePerSample    = 1.0 / samplesPerSecond
 )
 
 const cyclesPerSecond = 1789773
 const cyclesPerSample = cyclesPerSecond / samplesPerSecond
-
-const apuCircleBufSize = amountToStore
 
 // NOTE: size must be power of 2
 type apuCircleBuf struct {
@@ -196,34 +191,31 @@ func (apu *apu) genSample(emu *emuState) {
 
 	if apu.NumSamples >= cyclesPerSample {
 
-		if !apu.buffer.full() {
+		p1 := float64(apu.SampleP1) / float64(apu.NumSamples)
+		p2 := float64(apu.SampleP2) / float64(apu.NumSamples)
+		tri := float64(apu.SampleTri) / float64(apu.NumSamples)
+		dmc := float64(apu.SampleDMC) / float64(apu.NumSamples)
+		noise := float64(apu.SampleNoise) / float64(apu.NumSamples)
 
-			p1 := float64(apu.SampleP1) / float64(apu.NumSamples)
-			p2 := float64(apu.SampleP2) / float64(apu.NumSamples)
-			tri := float64(apu.SampleTri) / float64(apu.NumSamples)
-			dmc := float64(apu.SampleDMC) / float64(apu.NumSamples)
-			noise := float64(apu.SampleNoise) / float64(apu.NumSamples)
+		pSamples := 95.88 / (8128/(p1+p2) + 100)
+		tdnSamples := 159.79 / (1/(tri/8227+noise/12241+dmc/22638) + 100)
+		sample := pSamples + tdnSamples
 
-			pSamples := 95.88 / (8128/(p1+p2) + 100)
-			tdnSamples := 159.79 / (1/(tri/8227+noise/12241+dmc/22638) + 100)
-			sample := pSamples + tdnSamples
+		// dc blocker to center waveform
+		correctedSample := sample - apu.lastSample + 0.995*apu.lastCorrectedSample
+		apu.lastCorrectedSample = correctedSample
+		apu.lastSample = sample
+		sample = correctedSample
 
-			// dc blocker to center waveform
-			correctedSample := sample - apu.lastSample + 0.995*apu.lastCorrectedSample
-			apu.lastCorrectedSample = correctedSample
-			apu.lastSample = sample
-			sample = correctedSample
+		left, right := sample, sample
 
-			left, right := sample, sample
-
-			sampleL, sampleR := int16(left*32767.0), int16(right*32767.0)
-			apu.buffer.write([]byte{
-				byte(sampleL & 0xff),
-				byte(sampleL >> 8),
-				byte(sampleR & 0xff),
-				byte(sampleR >> 8),
-			})
-		}
+		sampleL, sampleR := int16(left*32767.0), int16(right*32767.0)
+		apu.buffer.write([]byte{
+			byte(sampleL & 0xff),
+			byte(sampleL >> 8),
+			byte(sampleR & 0xff),
+			byte(sampleR >> 8),
+		})
 
 		apu.SampleP1 = 0
 		apu.SampleP2 = 0
@@ -240,7 +232,7 @@ func (apu *apu) genSample(emu *emuState) {
 
 func (apu *apu) readSoundBuffer(emu *emuState, toFill []byte) []byte {
 	if int(apu.buffer.size()) < len(toFill) {
-		fmt.Println("audSize:", apu.buffer.size(), "len(toFill)", len(toFill), "buf[0]", apu.buffer.buf[0])
+		//fmt.Println("audSize:", apu.buffer.size(), "len(toFill)", len(toFill), "buf[0]", apu.buffer.buf[0])
 	}
 	for int(apu.buffer.size()) < len(toFill) {
 		// stretch sound to fill buffer to avoid click
@@ -250,7 +242,9 @@ func (apu *apu) readSoundBuffer(emu *emuState, toFill []byte) []byte {
 }
 
 func (apu *apu) runCycle(emu *emuState) {
-	apu.genSample(emu)
+	if !apu.buffer.full() {
+		apu.genSample(emu)
+	}
 }
 
 func (apu *apu) runFreqCycle(emu *emuState) {

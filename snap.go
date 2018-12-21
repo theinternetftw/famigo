@@ -9,7 +9,7 @@ import (
 	"io/ioutil"
 )
 
-const currentSnapshotVersion = 2
+const currentSnapshotVersion = 3
 
 const infoString = "famigo snapshot"
 
@@ -77,6 +77,9 @@ var snapshotConverters = map[int]func(map[string]interface{}) error{
 
 	// added 2018-06-13
 	1: convertSnap1To2,
+
+	// added 2018-12-21
+	2: convertSnap2To3,
 }
 
 // added 2018-06-13
@@ -104,6 +107,35 @@ func convertSnap1To2(state map[string]interface{}) error {
 	return nil
 }
 
+// added 2018-12-21
+func convertSnap2To3(state map[string]interface{}) error {
+	convertSound := func(soundName string) error {
+		if sound, _, err := followJSON(state, "APU", soundName); err == nil {
+			if soundMap, ok := sound.(map[string]interface{}); ok {
+				soundMap["T"] = 0
+				soundMap["PolySample"] = 0
+			} else {
+				return fmt.Errorf("sound var is of unknown type")
+			}
+		} else {
+			return err
+		}
+		return nil
+	}
+	if err := convertSound("Pulse1"); err != nil {
+		return fmt.Errorf("could not convert old v2 snapshot: %v", err)
+	} else if err := convertSound("Pulse2"); err != nil {
+		return fmt.Errorf("could not convert old v2 snapshot: %v", err)
+	} else if err := convertSound("Triangle"); err != nil {
+		return fmt.Errorf("could not convert old v2 snapshot: %v", err)
+	} else if err := convertSound("DMC"); err != nil {
+		return fmt.Errorf("could not convert old v2 snapshot: %v", err)
+	} else if err := convertSound("Noise"); err != nil {
+		return fmt.Errorf("could not convert old v2 snapshot: %v", err)
+	}
+	return nil
+}
+
 func (emu *emuState) convertOldSnapshot(snap *snapshot) (*emuState, error) {
 
 	var state map[string]interface{}
@@ -112,8 +144,8 @@ func (emu *emuState) convertOldSnapshot(snap *snapshot) (*emuState, error) {
 	}
 
 	for i := snap.Version; i < currentSnapshotVersion; i++ {
-		if converterFn, ok := snapshotConverters[snap.Version]; !ok {
-			return nil, fmt.Errorf("unknown snapshot version: %v", snap.Version)
+		if converterFn, ok := snapshotConverters[i]; !ok {
+			return nil, fmt.Errorf("could not find converter for snapshot version: %v", i)
 		} else if err := converterFn(state); err != nil {
 			return nil, fmt.Errorf("error converting snapshot version %v: %v", i, err)
 		}

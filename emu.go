@@ -41,7 +41,7 @@ func (emu *emuState) LoadSnapshot(snapBytes []byte) (Emulator, error) {
 // A pre-sized buffer must be provided, which is returned resized
 // if the buffer was less full than the length requested.
 func (emu *emuState) ReadSoundBuffer(toFill []byte) []byte {
-	return emu.APU.buffer.read(toFill)
+	return emu.APU.readSoundBuffer(emu, toFill)
 }
 
 func (emu *emuState) UpdateInput(input Input) {

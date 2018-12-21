@@ -1,5 +1,7 @@
 package famigo
 
+import "fmt"
+
 type apu struct {
 	FrameCounterInterruptInhibit   bool
 	FrameCounterSequencerMode      byte
@@ -11,6 +13,13 @@ type apu struct {
 	lastCorrectedSample float64
 
 	buffer apuCircleBuf
+
+	SampleP1    uint32
+	SampleP2    uint32
+	SampleTri   uint32
+	SampleDMC   uint32
+	SampleNoise uint32
+	NumSamples  uint32
 
 	Pulse1   sound
 	Pulse2   sound
@@ -40,12 +49,15 @@ func (apu *apu) init() {
 }
 
 const (
-	amountGenerateAhead = 4
-	samplesPerSecond    = 44100
-	timePerSample       = 1.0 / samplesPerSecond
+	amountToStore    = 16 * 512 * 4 // must be power of 2
+	samplesPerSecond = 44100
+	timePerSample    = 1.0 / samplesPerSecond
 )
 
-const apuCircleBufSize = amountGenerateAhead
+const cyclesPerSecond = 1789773
+const cyclesPerSample = cyclesPerSecond / samplesPerSecond
+
+const apuCircleBufSize = amountToStore
 
 // NOTE: size must be power of 2
 type apuCircleBuf struct {
@@ -167,47 +179,78 @@ func (sound *sound) updateDMCOutput(emu *emuState) {
 	}
 }
 
-func (apu *apu) runCycle(emu *emuState) {
-
+func (apu *apu) genSample(emu *emuState) {
 	apu.runFrameCounterCycle()
 	if apu.FrameCounterInterruptRequested {
 		emu.CPU.IRQ = true
 	}
 
-	if !apu.buffer.full() {
+	apu.runFreqCycle(emu)
 
-		left, right := 0.0, 0.0
+	apu.SampleP1 += uint32(apu.Pulse1.getSample(emu))
+	apu.SampleP2 += uint32(apu.Pulse2.getSample(emu))
+	apu.SampleTri += uint32(apu.Triangle.getSample(emu))
+	apu.SampleDMC += uint32(apu.DMC.getSample(emu))
+	apu.SampleNoise += uint32(apu.Noise.getSample(emu))
+	apu.NumSamples++
 
-		p1 := apu.Pulse1.getSample(emu)
-		p2 := apu.Pulse2.getSample(emu)
-		tri := apu.Triangle.getSample(emu)
-		dmc := apu.DMC.getSample(emu)
-		noise := apu.Noise.getSample(emu)
+	if apu.NumSamples >= cyclesPerSample {
 
-		pSamples := 95.88 / (8128/(float64(p1)+float64(p2)) + 100)
-		tdnSamples := 159.79 / (1/(float64(tri)/8227+float64(noise)/12241+float64(dmc)/22638) + 100)
-		sample := pSamples + tdnSamples
+		if !apu.buffer.full() {
 
-		// dc blocker to center waveform
-		correctedSample := sample - apu.lastSample + 0.995*apu.lastCorrectedSample
-		apu.lastCorrectedSample = correctedSample
-		apu.lastSample = sample
-		sample = correctedSample
+			p1 := float64(apu.SampleP1) / float64(apu.NumSamples)
+			p2 := float64(apu.SampleP2) / float64(apu.NumSamples)
+			tri := float64(apu.SampleTri) / float64(apu.NumSamples)
+			dmc := float64(apu.SampleDMC) / float64(apu.NumSamples)
+			noise := float64(apu.SampleNoise) / float64(apu.NumSamples)
 
-		left, right = sample, sample
+			pSamples := 95.88 / (8128/(p1+p2) + 100)
+			tdnSamples := 159.79 / (1/(tri/8227+noise/12241+dmc/22638) + 100)
+			sample := pSamples + tdnSamples
 
-		sampleL, sampleR := int16(left*32767.0), int16(right*32767.0)
-		apu.buffer.write([]byte{
-			byte(sampleL & 0xff),
-			byte(sampleL >> 8),
-			byte(sampleR & 0xff),
-			byte(sampleR >> 8),
-		})
+			// dc blocker to center waveform
+			correctedSample := sample - apu.lastSample + 0.995*apu.lastCorrectedSample
+			apu.lastCorrectedSample = correctedSample
+			apu.lastSample = sample
+			sample = correctedSample
+
+			left, right := sample, sample
+
+			sampleL, sampleR := int16(left*32767.0), int16(right*32767.0)
+			apu.buffer.write([]byte{
+				byte(sampleL & 0xff),
+				byte(sampleL >> 8),
+				byte(sampleR & 0xff),
+				byte(sampleR >> 8),
+			})
+		}
+
+		apu.SampleP1 = 0
+		apu.SampleP2 = 0
+		apu.SampleTri = 0
+		apu.SampleDMC = 0
+		apu.SampleNoise = 0
+		apu.NumSamples = 0
 	}
 
 	if apu.DMC.DMCInterruptRequested {
 		emu.CPU.IRQ = true
 	}
+}
+
+func (apu *apu) readSoundBuffer(emu *emuState, toFill []byte) []byte {
+	if int(apu.buffer.size()) < len(toFill) {
+		fmt.Println("audSize:", apu.buffer.size(), "len(toFill)", len(toFill), "buf[0]", apu.buffer.buf[0])
+	}
+	for int(apu.buffer.size()) < len(toFill) {
+		// stretch sound to fill buffer to avoid click
+		apu.genSample(emu)
+	}
+	return apu.buffer.read(toFill)
+}
+
+func (apu *apu) runCycle(emu *emuState) {
+	apu.genSample(emu)
 }
 
 func (apu *apu) runFreqCycle(emu *emuState) {
@@ -238,13 +281,23 @@ func (apu *apu) runLengthCycle() {
 
 func (sound *sound) runFreqCycle(emu *emuState) {
 
-	sound.T += sound.Freq * timePerSample
+	sound.T++
 
-	for sound.T > 1.0 {
-		sound.T -= 1.0
-		if sound.SoundType == noiseSoundType {
+	if sound.T >= sound.FreqDivider {
+		sound.T = 0
+		switch sound.SoundType {
+		case squareSoundType:
+			sound.DutyCycleSeqCounter++
+			sound.DutyCycleSeqCounter &= 7
+		case triangleSoundType:
+			audible := sound.PeriodTimer >= 2 // not accurate, but eliminates annoying clicks
+			if sound.On && audible && sound.LengthCounter > 0 && sound.TriangleLinearCounter > 0 {
+				sound.TriangleSeqCounter++
+				sound.TriangleSeqCounter &= 31
+			}
+		case noiseSoundType:
 			sound.updateNoiseShiftRegister()
-		} else if sound.SoundType == dmcSoundType {
+		case dmcSoundType:
 			sound.updateDMCOutput(emu)
 		}
 	}
@@ -266,32 +319,31 @@ func (sound *sound) updateNoiseShiftRegister() {
 func (sound *sound) updateFreq() {
 	switch sound.SoundType {
 	case dmcSoundType:
-		sound.Freq = 1789773.0 / float64(sound.DMCPeriod)
+		sound.FreqDivider = uint32(sound.DMCPeriod)
 	case noiseSoundType:
-		sound.Freq = 1789773.0 / float64(sound.NoisePeriod)
+		sound.FreqDivider = uint32(sound.NoisePeriod)
 	case triangleSoundType:
-		sound.Freq = 1789773.0 / (32.0 * float64(sound.PeriodTimer+1))
+		sound.FreqDivider = uint32(sound.PeriodTimer) + 1
 	case squareSoundType:
-		sound.Freq = 1789773.0 / (16.0 * float64(sound.PeriodTimer+1))
+		// is 16*t+1 for total freq, 2*t+1 for duty cycle sequence
+		sound.FreqDivider = 2 * (uint32(sound.PeriodTimer) + 1)
 		sound.updateSweepTargetPeriod()
 	default:
 		panic("unexpected sound type")
 	}
 }
 
+var dutyCycleTable = [4][8]byte{
+	{0, 1, 0, 0, 0, 0, 0, 0},
+	{0, 1, 1, 0, 0, 0, 0, 0},
+	{0, 1, 1, 1, 1, 0, 0, 0},
+	{1, 0, 0, 1, 1, 1, 1, 1},
+}
+
 func (sound *sound) inDutyCycle() bool {
-	switch sound.DutyCycleSelector {
-	case 0:
-		return sound.T > 0.125 && sound.T < 0.250
-	case 1:
-		return sound.T > 0.125 && sound.T < 0.375
-	case 2:
-		return sound.T > 0.125 && sound.T < 0.625
-	case 3:
-		return sound.T < 0.125 || sound.T > 0.375
-	default:
-		panic("unknown wave duty")
-	}
+	sel := sound.DutyCycleSelector
+	counter := sound.DutyCycleSeqCounter
+	return dutyCycleTable[sel][counter] == 1
 }
 
 var triangleSampleTable = []byte{
@@ -299,16 +351,10 @@ var triangleSampleTable = []byte{
 	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 }
 
-func (sound *sound) getTriangleSample() byte {
-	val := triangleSampleTable[int(sound.T*32)]
-	return val
-}
-
 func (sound *sound) getSample(emu *emuState) byte {
 	sample := byte(0)
 	switch sound.SoundType {
 	case squareSoundType:
-		sound.runFreqCycle(emu)
 		vol := sound.getCurrentVolume()
 		if sound.On && vol > 0 {
 			if sound.LengthCounter > 0 {
@@ -320,13 +366,8 @@ func (sound *sound) getSample(emu *emuState) byte {
 			}
 		}
 	case triangleSoundType:
-		audible := sound.PeriodTimer >= 2 // not accurate, but eliminates annoying clicks
-		if sound.On && audible && sound.LengthCounter > 0 && sound.TriangleLinearCounter > 0 {
-			sound.runFreqCycle(emu)
-		}
-		sample = sound.getTriangleSample()
+		sample = triangleSampleTable[sound.TriangleSeqCounter]
 	case noiseSoundType:
-		sound.runFreqCycle(emu)
 		vol := sound.getCurrentVolume()
 		if sound.On && vol > 0 {
 			if sound.LengthCounter > 0 {
@@ -336,7 +377,6 @@ func (sound *sound) getSample(emu *emuState) byte {
 			}
 		}
 	case dmcSoundType:
-		sound.runFreqCycle(emu)
 		sample = sound.DMCCurrentValue
 	}
 	return sample
@@ -347,11 +387,12 @@ type sound struct {
 
 	On bool
 
-	T    float64
-	Freq float64
+	T           uint32
+	FreqDivider uint32
 
 	// square waves only
 	DutyCycleSelector         byte
+	DutyCycleSeqCounter       byte
 	SweepEnable               bool
 	SweepNegate               bool
 	SweepReload               bool
@@ -363,6 +404,7 @@ type sound struct {
 	SweepUsesOnesComplement   bool // hard-wired to pulse1
 
 	TriangleLinearCounter            byte
+	TriangleSeqCounter               byte
 	TriangleLinearCounterControlFlag bool
 	TriangleLinearCounterReloadValue byte
 	TriangleLinearCounterReloadFlag  bool

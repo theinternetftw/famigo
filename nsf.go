@@ -25,7 +25,12 @@ type nsfPlayer struct {
 	DbgTerminal        dbgTerminal
 	DbgScreen          [256 * 240 * 4]byte
 	DbgFlipRequested   bool
+
+	devMode bool
 }
+
+func (np *nsfPlayer) InDevMode() bool   { return np.devMode }
+func (np *nsfPlayer) SetDevMode(b bool) { np.devMode = b }
 
 func (np *nsfPlayer) GetPrgRAM() []byte { return nil }
 func (np *nsfPlayer) SetPrgRAM(ram []byte) error {
@@ -258,7 +263,7 @@ func parseNsf(nsf []byte) (nsfHeader, []byte, error) {
 }
 
 // NewNsfPlayer creates an nsfPlayer session
-func NewNsfPlayer(nsf []byte) Emulator {
+func NewNsfPlayer(nsf []byte, devMode bool) Emulator {
 
 	var nsfe *parsedNsfe
 	var hdr nsfHeader
@@ -320,6 +325,7 @@ func NewNsfPlayer(nsf []byte) Emulator {
 		Hdr:              hdr,
 		HdrExtended:      nsfe,
 		TvStdBit:         tvBit,
+		devMode:          devMode,
 	}
 	np.CPU = virt6502.Virt6502{
 		IgnoreDecimalMode: true,

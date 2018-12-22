@@ -17,6 +17,9 @@ type Emulator interface {
 
 	UpdateInput(input Input)
 	ReadSoundBuffer([]byte) []byte
+
+	InDevMode() bool
+	SetDevMode(b bool)
 }
 
 // Input covers all outside info sent to the Emulator
@@ -25,8 +28,8 @@ type Input struct {
 }
 
 // NewEmulator creates an emulation session
-func NewEmulator(cart []byte) Emulator {
-	return newState(cart)
+func NewEmulator(cart []byte, devMode bool) Emulator {
+	return newState(cart, devMode)
 }
 
 func (emu *emuState) MakeSnapshot() []byte {

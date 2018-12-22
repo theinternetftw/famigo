@@ -9,7 +9,12 @@ type errEmu struct {
 	terminal      dbgTerminal
 	screen        [256 * 240 * 4]byte
 	flipRequested bool
+
+	devMode bool
 }
+
+func (e *errEmu) InDevMode() bool   { return e.devMode }
+func (e *errEmu) SetDevMode(b bool) { e.devMode = b }
 
 // NewErrEmu returns an emulator that only shows an error message
 func NewErrEmu(msg string) Emulator {

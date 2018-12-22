@@ -68,6 +68,8 @@ func (emu *emuState) convertLatestSnapshot(snap *snapshot) (*emuState, error) {
 	newState.CPU.RunCycles = newState.runCycles
 	newState.CPU.Err = func(e error) { emuErr(e) }
 
+	newState.devMode = emu.devMode
+
 	return &newState, nil
 }
 

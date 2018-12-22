@@ -32,23 +32,28 @@ func main() {
 
 	assert(len(romBytes) > 4, "cannot parse file, illegal header")
 
+	// TODO: config file instead
+	devMode := fileExists("devmode")
+
 	var emu famigo.Emulator
 
 	fileMagic := string(romBytes[:4])
 	if fileMagic == "NESM" || fileMagic == "NSFE" {
 		// nsf(e) file
-		emu = famigo.NewNsfPlayer(romBytes)
+		emu = famigo.NewNsfPlayer(romBytes, devMode)
 	} else {
 		// rom file
 		cartInfo, err := famigo.ParseCartInfo(romBytes)
 		dieIf(err)
 
-		fmt.Println("PRG ROM SIZE:", cartInfo.GetROMSizePrg())
-		fmt.Println("PRG RAM SIZE:", cartInfo.GetRAMSizePrg(), "( Battery backed:", cartInfo.HasBatteryBackedRAM(), ")")
-		fmt.Println("CHR ROM SIZE:", cartInfo.GetROMSizeChr())
-		fmt.Println("MAPPER NUM:", cartInfo.GetMapperNumber())
+		if devMode {
+			fmt.Println("PRG ROM SIZE:", cartInfo.GetROMSizePrg())
+			fmt.Println("PRG RAM SIZE:", cartInfo.GetRAMSizePrg(), "( Battery backed:", cartInfo.HasBatteryBackedRAM(), ")")
+			fmt.Println("CHR ROM SIZE:", cartInfo.GetROMSizeChr())
+			fmt.Println("MAPPER NUM:", cartInfo.GetMapperNumber())
+		}
 
-		emu = famigo.NewEmulator(romBytes)
+		emu = famigo.NewEmulator(romBytes, devMode)
 	}
 
 	glimmer.InitDisplayLoop("famigo", 256*2+40, 240*2+40, 256, 240, func(sharedState *glimmer.WindowState) {
@@ -56,6 +61,11 @@ func main() {
 			fastMode: *fastMode,
 		})
 	})
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
 }
 
 func startEmu(filename string, window *glimmer.WindowState, emu famigo.Emulator, options options) {

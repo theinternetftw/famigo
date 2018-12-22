@@ -32,7 +32,12 @@ type emuState struct {
 	ReloadingJoypads    bool
 	JoypadReg1ReadCount byte
 	JoypadReg2ReadCount byte
+
+	devMode bool
 }
+
+func (emu *emuState) InDevMode() bool   { return emu.devMode }
+func (emu *emuState) SetDevMode(b bool) { emu.devMode = b }
 
 func (emu *emuState) writeJoypadReg1(val byte) {
 	if val&0x01 != 0 {
@@ -93,7 +98,7 @@ func (emu *emuState) step() {
 	emu.CPU.Step()
 }
 
-func newState(romBytes []byte) *emuState {
+func newState(romBytes []byte, devMode bool) *emuState {
 	cartInfo, _ := ParseCartInfo(romBytes)
 	prgStart := cartInfo.GetROMOffsetPrg()
 	prgEnd := prgStart + cartInfo.GetROMSizePrg()
@@ -107,6 +112,7 @@ func newState(romBytes []byte) *emuState {
 			PrgRAM: make([]byte, cartInfo.GetRAMSizePrg()),
 		},
 		CartInfo: cartInfo,
+		devMode:  devMode,
 	}
 	emu.CPU = virt6502.Virt6502{
 		RESET:             true,

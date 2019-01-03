@@ -1,6 +1,10 @@
 # famigo - a nes emulator / nsf player in go
 
-After [dmgo](https://github.com/theinternetftw/dmgo), I figured I'd make a NES emulator. So I did.
+My other emulators:
+[dmgo](https://github.com/theinternetftw/dmgo),
+[vcsgo](https://github.com/theinternetftw/vcsgo),
+[segmago](https://github.com/theinternetftw/segmago), and
+[a1go](https://github.com/theinternetftw/a1go).
 
 #### Features:
  * Audio (on windows)!
@@ -9,16 +13,23 @@ After [dmgo](https://github.com/theinternetftw/dmgo), I figured I'd make a NES e
  * Plays NSF and NSFE files! ([here's a good album to try](http://rainwarrior.ca/projects/nes/pico.html))
  * Missing a few [mappers](http://wiki.nesdev.com/w/index.php/Mapper), the NES has literally hundreds!
  * Glitches are rare, but less rare than dmgo, and still totally happen!
- * Graphical cross-platform support in native golang, with no hooks into C libraries needed!
+ * Graphical cross-platform support!
 
-That last bit relies on [exp/shiny](https://github.com/golang/exp/tree/master/shiny), which is still a work in progress. Let me know if it fails on your platform.
-Tested on windows 10 and xubuntu.
+That last bit relies on [glimmer](https://github.com/theinternetftw/glimmer). Tested on windows 10 and ubuntu 18.10.
 
-#### Build instructions:
+#### Dependencies:
 
-famigo uses [glide](https://github.com/Masterminds/glide) for dependencies, so run `glide update` first (or just `go get` the packages mentioned in the `glide.yaml` file).
+You can compile on windows with no C dependencies.
 
-After that, `go build ./cmd/famigo` should be enough. The interested can also see my build script `b` for more options (profiling and cross-compiling and such).
+Linux users should 'apt install libasound2-dev' or equivalent.
+
+FreeBSD (and Mac?) users should 'pkg install openal-soft' or equivalent.
+
+#### Compile instructions
+
+If you have go version >= 1.11, `go build ./cmd/famigo` should be enough. The interested can also see my build script `b` for profiling and such.
+
+Non-windows users will need the dependencies listed above.
 
 #### Important Notes:
 

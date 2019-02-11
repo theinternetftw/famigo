@@ -70,11 +70,6 @@ func fileExists(path string) bool {
 
 func startEmu(filename string, window *glimmer.WindowState, emu famigo.Emulator, options options) {
 
-	// FIXME: settings are for debug right now
-	lastFlipTime := time.Now()
-	lastDrawTime := time.Now()
-	lastSaveTime := time.Now()
-
 	snapshotPrefix := filename + ".snapshot"
 
 	saveFilename := filename + ".sav"
@@ -89,14 +84,19 @@ func startEmu(filename string, window *glimmer.WindowState, emu famigo.Emulator,
 		fmt.Println("error loading savefile,", err)
 	}
 
-	audio, err := glimmer.OpenAudioBuffer(1, 8192, 44100, 16, 2)
+	audio, err := glimmer.OpenAudioBuffer(2, 8192, 44100, 16, 2)
 	workingAudioBuffer := make([]byte, audio.BufferSize())
 	dieIf(err)
 
 	snapshotMode := 'x'
 
+	lastDrawTime := time.Now()
+	lastSaveTime := time.Now()
+
+	frameTimer := glimmer.MakeFrameTimer(1.0 / 60.0)
+
 	for {
-		window.Mutex.Lock()
+		window.InputMutex.Lock()
 		newInput := famigo.Input {
 			Joypad: famigo.Joypad {
 				Sel:  window.CharIsDown('t'), Start: window.CharIsDown('y'),
@@ -117,7 +117,7 @@ func startEmu(filename string, window *glimmer.WindowState, emu famigo.Emulator,
 		} else if window.CharIsDown('l') {
 			snapshotMode = 'l'
 		}
-		window.Mutex.Unlock()
+		window.InputMutex.Unlock()
 
 		if numDown > '0' && numDown <= '9' {
 			snapFilename := snapshotPrefix+string(numDown)
@@ -156,22 +156,20 @@ func startEmu(filename string, window *glimmer.WindowState, emu famigo.Emulator,
 		if emu.FlipRequested() {
 			if !options.fastMode || time.Now().Sub(lastDrawTime) > 17*time.Millisecond {
 
-				window.Mutex.Lock()
+				window.RenderMutex.Lock()
 				copy(window.Pix, emu.Framebuffer())
 				window.RequestDraw()
-				window.Mutex.Unlock()
+				window.RenderMutex.Unlock()
 
 				lastDrawTime = time.Now()
 			}
 
-			spent := time.Now().Sub(lastFlipTime)
 			if !options.fastMode {
-				toWait := 17*time.Millisecond - spent
-				if toWait > time.Duration(0) {
-					<-time.NewTimer(toWait).C
+				frameTimer.WaitForFrametime()
+				if emu.InDevMode() {
+					frameTimer.PrintStatsEveryXFrames(60*5)
 				}
 			}
-			lastFlipTime = time.Now()
 		}
 		if time.Now().Sub(lastSaveTime) > 5*time.Second {
 			ram := emu.GetPrgRAM()

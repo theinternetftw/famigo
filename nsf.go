@@ -13,8 +13,8 @@ type nsfPlayer struct {
 	emuState
 	Hdr                nsfHeader
 	HdrExtended        *parsedNsfe
-	PlayCallInterval   float64
-	LastPlayCall       time.Time
+	PlayCallInterval   int
+	LastPlayCall       uint64
 	CurrentSong        byte
 	CurrentSongLen     time.Duration
 	CurrentSongFadeLen time.Duration
@@ -312,6 +312,9 @@ func NewNsfPlayer(nsf []byte, devMode bool) Emulator {
 		tvBit = 1
 	}
 
+	const secondsToCycles = 60 * 29830
+	playCallInterval := int(playSpeed * secondsToCycles)
+
 	np := nsfPlayer{
 		emuState: emuState{
 			Mem: mem{
@@ -321,7 +324,7 @@ func NewNsfPlayer(nsf []byte, devMode bool) Emulator {
 				PrgRAM: make([]byte, 8192),
 			},
 		},
-		PlayCallInterval: playSpeed,
+		PlayCallInterval: playCallInterval,
 		Hdr:              hdr,
 		HdrExtended:      nsfe,
 		TvStdBit:         tvBit,
@@ -482,7 +485,7 @@ func (np *nsfPlayer) Step() {
 	if !np.Paused {
 
 		now := time.Now()
-		if now.Sub(lastScreenUpdate) >= 100*time.Millisecond {
+		if now.Sub(lastScreenUpdate) >= 17*time.Millisecond {
 			lastScreenUpdate = now
 			np.updateScreen()
 		}
@@ -498,17 +501,12 @@ func (np *nsfPlayer) Step() {
 		}
 
 		if np.CPU.PC == 0x0001 {
-			timeLeft := np.PlayCallInterval - now.Sub(np.LastPlayCall).Seconds()
-			if timeLeft <= 0 {
-				np.LastPlayCall = now
+			stepsSinceLastCall := int(np.Cycles - np.LastPlayCall)
+			if stepsSinceLastCall >= int(np.PlayCallInterval) {
+				np.LastPlayCall = np.Cycles
 				np.CPU.S = 0xfd
 				np.CPU.Push16(0x0000)
 				np.CPU.PC = np.Hdr.PlayAddr
-			} else {
-				toWait := time.Duration(timeLeft / 2 * 1000 * float64(time.Millisecond))
-				if toWait > time.Millisecond {
-					<-time.NewTimer(toWait).C
-				}
 			}
 		}
 

@@ -22,7 +22,7 @@ type nsfPlayer struct {
 	TvStdBit           byte
 	Paused             bool
 	PauseStartTime     time.Time
-	DbgTerminal        dbgTerminal
+	TextDisplay        textDisplay
 	DbgScreen          [256 * 240 * 4]byte
 	DbgFlipRequested   bool
 
@@ -334,7 +334,7 @@ func NewNsfPlayer(nsf []byte, devMode bool) Emulator {
 		Read:              np.emuState.read,
 		Err:               func(e error) { emuErr(e) },
 	}
-	np.DbgTerminal = dbgTerminal{w: 256, h: 240, screen: np.DbgScreen[:]}
+	np.TextDisplay = textDisplay{w: 256, h: 240, screen: np.DbgScreen[:]}
 
 	np.init()
 
@@ -391,18 +391,18 @@ func (np *nsfPlayer) initTune(songNum byte) {
 
 func (np *nsfPlayer) updateScreen() {
 
-	np.DbgTerminal.clearScreen()
+	np.TextDisplay.clearScreen()
 
-	np.DbgTerminal.setPos(0, 1)
-	np.DbgTerminal.writeString("NSF Player\n")
-	np.DbgTerminal.newline()
-	np.DbgTerminal.writeString(string(np.Hdr.SongName[:]) + "\n")
-	np.DbgTerminal.writeString(string(np.Hdr.ArtistName[:]) + "\n")
-	np.DbgTerminal.writeString(string(np.Hdr.CopyrightName[:]) + "\n")
+	np.TextDisplay.setPos(0, 1)
+	np.TextDisplay.writeString("NSF Player\n")
+	np.TextDisplay.newline()
+	np.TextDisplay.writeString(string(np.Hdr.SongName[:]) + "\n")
+	np.TextDisplay.writeString(string(np.Hdr.ArtistName[:]) + "\n")
+	np.TextDisplay.writeString(string(np.Hdr.CopyrightName[:]) + "\n")
 
-	np.DbgTerminal.newline()
+	np.TextDisplay.newline()
 
-	np.DbgTerminal.writeString(fmt.Sprintf("Track %02d/%02d\n", np.CurrentSong+1, np.Hdr.NumSongs))
+	np.TextDisplay.writeString(fmt.Sprintf("Track %02d/%02d\n", np.CurrentSong+1, np.Hdr.NumSongs))
 
 	nowTime := int(time.Now().Sub(np.CurrentSongStart).Seconds())
 	nowTimeStr := fmt.Sprintf("%02d:%02d", nowTime/60, nowTime%60)
@@ -411,15 +411,15 @@ func (np *nsfPlayer) updateScreen() {
 		endTimeStr := "??:??"
 		endTime := int(np.CurrentSongLen.Seconds())
 		endTimeStr = fmt.Sprintf("%02d:%02d", endTime/60, endTime%60)
-		np.DbgTerminal.writeString(fmt.Sprintf("%s/%s", nowTimeStr, endTimeStr))
+		np.TextDisplay.writeString(fmt.Sprintf("%s/%s", nowTimeStr, endTimeStr))
 	} else {
-		np.DbgTerminal.writeString(fmt.Sprintf("%s", nowTimeStr))
+		np.TextDisplay.writeString(fmt.Sprintf("%s", nowTimeStr))
 	}
 
 	if np.Paused {
-		np.DbgTerminal.writeString(" *PAUSED*\n")
+		np.TextDisplay.writeString(" *PAUSED*\n")
 	} else {
-		np.DbgTerminal.newline()
+		np.TextDisplay.newline()
 	}
 
 	if np.HdrExtended != nil {
@@ -427,7 +427,7 @@ func (np *nsfPlayer) updateScreen() {
 		if len(title) > 28 {
 			title = title[:28] + "..."
 		}
-		np.DbgTerminal.writeString(title + "\n")
+		np.TextDisplay.writeString(title + "\n")
 	}
 	np.DbgFlipRequested = true
 }

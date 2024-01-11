@@ -34,6 +34,7 @@ func (e *errEmu) LoadSnapshot([]byte) (Emulator, error) {
 	return nil, fmt.Errorf("snapshots not implemented for errEmu")
 }
 func (e *errEmu) ReadSoundBuffer(toFill []byte) []byte { return nil }
+func (e *errEmu) GetSoundBufferUsed() int              { return 0 }
 func (e *errEmu) UpdateInput(input Input)              {}
 func (e *errEmu) Step()                                {}
 

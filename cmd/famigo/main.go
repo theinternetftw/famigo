@@ -56,10 +56,15 @@ func main() {
 		emu = famigo.NewEmulator(romBytes, devMode)
 	}
 
-	glimmer.InitDisplayLoop("famigo", 256*2+40, 240*2+40, 256, 240, func(sharedState *glimmer.WindowState) {
-		startEmu(cartFilename, sharedState, emu, options{
-			fastMode: *fastMode,
-		})
+	glimmer.InitDisplayLoop(glimmer.InitDisplayLoopOptions{
+		WindowTitle: "famigo",
+		WindowWidth: 256*2 + 40, WindowHeight: 240*2 + 40,
+		RenderWidth: 256, RenderHeight: 240,
+		InitCallback: func(sharedState *glimmer.WindowState) {
+			startEmu(cartFilename, sharedState, emu, options{
+				fastMode: *fastMode,
+			})
+		},
 	})
 }
 
@@ -84,25 +89,31 @@ func startEmu(filename string, window *glimmer.WindowState, emu famigo.Emulator,
 		fmt.Println("error loading savefile,", err)
 	}
 
-	audio, err := glimmer.OpenAudioBuffer(2, 8192, 44100, 16, 2)
-	workingAudioBuffer := make([]byte, audio.BufferSize())
-	dieIf(err)
+	audio, audioErr := glimmer.OpenAudioBuffer(glimmer.OpenAudioBufferOptions{
+		OutputBufDuration: 25 * time.Millisecond,
+		SamplesPerSecond:  44100,
+		BitsPerSample:     16,
+		ChannelCount:      2,
+	})
+	dieIf(audioErr)
+	workingAudioBuffer := make([]byte, audio.GetPrevCallbackReadLen())
+	audioToGen := audio.GetPrevCallbackReadLen()
 
 	snapshotMode := 'x'
 
 	lastDrawTime := time.Now()
 	lastSaveTime := time.Now()
 
-	frameTimer := glimmer.MakeFrameTimer(1.0 / 60.0)
+	frameTimer := glimmer.MakeFrameTimer()
 
 	for {
 		window.InputMutex.Lock()
-		newInput := famigo.Input {
-			Joypad: famigo.Joypad {
-				Sel:  window.CharIsDown('t'), Start: window.CharIsDown('y'),
-				Up:   window.CharIsDown('w'), Down:  window.CharIsDown('s'),
+		newInput := famigo.Input{
+			Joypad: famigo.Joypad{
+				Sel: window.CharIsDown('t'), Start: window.CharIsDown('y'),
+				Up: window.CharIsDown('w'), Down: window.CharIsDown('s'),
 				Left: window.CharIsDown('a'), Right: window.CharIsDown('d'),
-				A:    window.CharIsDown('k'), B:     window.CharIsDown('j'),
+				A: window.CharIsDown('k'), B: window.CharIsDown('j'),
 			},
 		}
 		numDown := 'x'
@@ -120,7 +131,7 @@ func startEmu(filename string, window *glimmer.WindowState, emu famigo.Emulator,
 		window.InputMutex.Unlock()
 
 		if numDown > '0' && numDown <= '9' {
-			snapFilename := snapshotPrefix+string(numDown)
+			snapFilename := snapshotPrefix + string(numDown)
 			if snapshotMode == 'm' {
 				snapshotMode = 'x'
 				snapshot := emu.MakeSnapshot()
@@ -146,29 +157,33 @@ func startEmu(filename string, window *glimmer.WindowState, emu famigo.Emulator,
 		emu.UpdateInput(newInput)
 		emu.Step()
 
-		bufferAvailable := audio.BufferAvailable()
-		// if bufferAvailable == audio.BufferSize() {
-		// 	fmt.Println("Platform AudioBuffer empty!")
-		// }
-		workingAudioBuffer = workingAudioBuffer[:bufferAvailable]
-		audio.Write(emu.ReadSoundBuffer(workingAudioBuffer))
+		if emu.GetSoundBufferUsed() >= audioToGen {
+			if cap(workingAudioBuffer) < audioToGen {
+				workingAudioBuffer = make([]byte, audioToGen)
+			}
+			workingAudioBuffer = workingAudioBuffer[:audioToGen]
+			audio.Write(emu.ReadSoundBuffer(workingAudioBuffer))
+		}
 
 		if emu.FlipRequested() {
+			frameTimer.MarkRenderComplete()
 			if !options.fastMode || time.Now().Sub(lastDrawTime) > 17*time.Millisecond {
 
 				window.RenderMutex.Lock()
 				copy(window.Pix, emu.Framebuffer())
-				window.RequestDraw()
 				window.RenderMutex.Unlock()
 
 				lastDrawTime = time.Now()
 			}
 
 			if !options.fastMode {
-				frameTimer.WaitForFrametime()
-				if emu.InDevMode() {
-					frameTimer.PrintStatsEveryXFrames(60*5)
-				}
+				audio.WaitForPlaybackIfAhead()
+			}
+
+			frameTimer.MarkFrameComplete()
+
+			if emu.InDevMode() {
+				frameTimer.PrintStatsEveryXFrames(60 * 5)
 			}
 		}
 		if time.Now().Sub(lastSaveTime) > 5*time.Second {

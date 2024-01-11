@@ -17,6 +17,7 @@ type Emulator interface {
 
 	UpdateInput(input Input)
 	ReadSoundBuffer([]byte) []byte
+	GetSoundBufferUsed() int
 
 	InDevMode() bool
 	SetDevMode(b bool)
@@ -45,6 +46,10 @@ func (emu *emuState) LoadSnapshot(snapBytes []byte) (Emulator, error) {
 // if the buffer was less full than the length requested.
 func (emu *emuState) ReadSoundBuffer(toFill []byte) []byte {
 	return emu.APU.readSoundBuffer(emu, toFill)
+}
+
+func (emu *emuState) GetSoundBufferUsed() int {
+	return int(emu.APU.buffer.size())
 }
 
 func (emu *emuState) UpdateInput(input Input) {
